@@ -31,6 +31,12 @@ MIME_TO_EXTENSION = {
     "image/vnd.microsoft.icon": "ico",
     "image/tiff": "tiff",
     "image/heic": "heic",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+    "video/ogg": "ogv",
+    "video/quicktime": "mov",
+    "video/x-msvideo": "avi",
+    "video/mpeg": "mpeg",
 }
 
 MAGIC_MIME = (
@@ -42,8 +48,11 @@ MAGIC_MIME = (
     (b"\x00\x00\x01\x00", "image/x-icon"),
     (b"II*\x00", "image/tiff"),
     (b"MM\x00*", "image/tiff"),
+    (b"\x1aE\xdf\xa3", "video/webm"),
+    (b"OggS", "video/ogg"),
 )
 MAX_HEIC_BRAND_SCAN_BYTES = 32
+MAX_MP4_BRAND_SCAN_BYTES = 32
 _pending_access_times: dict[str, datetime] = {}
 _pending_access_lock = Lock()
 
@@ -273,7 +282,7 @@ def _validate_size(content: bytes) -> None:
     if len(content) > max_bytes:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"图片不能超过 {image_host_config.max_upload_mb}MB",
+            detail=f"文件不能超过 {image_host_config.max_upload_mb}MB",
         )
 
 
@@ -288,14 +297,20 @@ def _detect_mime_type(content: bytes, declared_mime: str | None) -> str:
         detected = "image/webp"
     if detected is None and _looks_like_heic(content):
         detected = "image/heic"
+    if detected is None:
+        detected = _detect_iso_video_mime_type(content)
+    if detected is None and _looks_like_avi(content):
+        detected = "video/x-msvideo"
 
     mime_type = detected or (declared_mime or "").split(";")[0].strip().lower()
     if mime_type == "image/jpg":
         mime_type = "image/jpeg"
+    if mime_type == "video/ogv":
+        mime_type = "video/ogg"
     if mime_type not in MIME_TO_EXTENSION:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="仅支持 JPG、PNG、WEBP、GIF、BMP、ICO、TIFF、HEIC 图片",
+            detail="仅支持常见图片和视频文件",
         )
     return mime_type
 
@@ -309,6 +324,23 @@ def _looks_like_heic(content: bytes) -> bool:
     return len(content) >= 12 and b"ftyp" in content[:MAX_HEIC_BRAND_SCAN_BYTES] and any(
         brand in content[:MAX_HEIC_BRAND_SCAN_BYTES] for brand in brands
     )
+
+
+def _detect_iso_video_mime_type(content: bytes) -> str | None:
+    brands = (b"isom", b"iso2", b"mp41", b"mp42", b"avc1", b"m4v ", b"qt  ")
+    if not (
+        len(content) >= 12
+        and content[4:8] == b"ftyp"
+        and any(brand in content[:MAX_MP4_BRAND_SCAN_BYTES] for brand in brands)
+    ):
+        return None
+    if b"qt  " in content[:MAX_MP4_BRAND_SCAN_BYTES]:
+        return "video/quicktime"
+    return "video/mp4"
+
+
+def _looks_like_avi(content: bytes) -> bool:
+    return len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"AVI "
 
 
 def _parse_public_filename(filename: str) -> tuple[str, str]:

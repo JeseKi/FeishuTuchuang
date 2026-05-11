@@ -17,6 +17,10 @@ PNG_BYTES = (
     b"\x00\x00\x00\x0cIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfeA\xe2&\xb5"
     b"\x00\x00\x00\x00IEND\xaeB`\x82"
 )
+MP4_BYTES = (
+    b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2mp41"
+    b"\x00\x00\x00\x08free"
+)
 
 
 class FakeImageStorageBackend:
@@ -105,6 +109,25 @@ def test_upload_image_with_bearer_api_key(
     )
 
     assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+
+
+def test_upload_video_with_api_key_header(
+    test_client,
+    init_test_database,
+    fake_storage,
+):
+    api_key = _create_api_key(test_client)
+
+    upload_resp = test_client.post(
+        "/api/v1/images",
+        headers={"X-API-Key": api_key},
+        files={"image": ("clip.mp4", MP4_BYTES, "video/mp4")},
+    )
+
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+    data = upload_resp.json()
+    assert data["filename"].endswith(".mp4")
+    assert data["mime_type"] == "video/mp4"
 
 
 def test_upload_image_rejects_revoked_api_key(

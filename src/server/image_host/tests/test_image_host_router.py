@@ -21,6 +21,10 @@ PNG_BYTES = (
     b"\x00\x00\x00\x0cIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfeA\xe2&\xb5"
     b"\x00\x00\x00\x00IEND\xaeB`\x82"
 )
+MP4_BYTES = (
+    b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2mp41"
+    b"\x00\x00\x00\x08free"
+)
 
 
 class FakeImageStorageBackend:
@@ -197,6 +201,33 @@ def test_upload_rejects_non_image(
 
     assert resp.status_code == HTTPStatus.BAD_REQUEST
     assert fake_storage.upload_count == 0
+
+
+def test_upload_video_and_get_public_url(
+    test_client,
+    init_test_database,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("clip.mp4", MP4_BYTES, "video/mp4")},
+    )
+
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+    data = upload_resp.json()
+    assert data["filename"].endswith(".mp4")
+    assert data["mime_type"] == "video/mp4"
+    assert data["size_bytes"] == len(MP4_BYTES)
+    assert fake_storage.upload_count == 1
+
+    video_resp = test_client.get(f"/i/{data['filename']}")
+
+    assert video_resp.status_code == HTTPStatus.OK, video_resp.text
+    assert video_resp.headers["content-type"].startswith("video/mp4")
+    assert video_resp.content == MP4_BYTES
 
 
 def test_delete_image_removes_remote_local_cache_and_database(

@@ -34,7 +34,7 @@ class ImageHostConfig(BaseSettings):
         default=Path("data") / "image_cache",
         title="图片本地缓存目录",
     )
-    max_upload_mb: int = Field(default=10, ge=1, le=100, title="最大上传大小 MB")
+    max_upload_mb: int = Field(default=100, ge=1, le=100, title="最大上传大小 MB")
     cache_ttl_hours: int = Field(
         default=168,
         ge=1,

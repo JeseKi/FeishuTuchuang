@@ -21,6 +21,7 @@ import {
   CopyOutlined,
   DeleteOutlined,
   FileImageOutlined,
+  FileOutlined,
   LinkOutlined,
   ReloadOutlined,
   UploadOutlined,
@@ -67,6 +68,7 @@ export default function ImageHostPage() {
   const [error, setError] = useState<string | null>(null)
   const [messageApi, contextHolder] = message.useMessage()
   const pageSize = 10
+  const isVideoAsset = (target?: ImageAsset | null) => target?.mime_type.startsWith('video/') ?? false
 
   const loadAssets = useCallback(async (targetPage: number) => {
     setLoadingList(true)
@@ -148,7 +150,7 @@ export default function ImageHostPage() {
   }
 
   const uploadProps = useMemo<UploadProps>(() => ({
-    accept: 'image/*',
+    accept: 'image/*,video/*',
     maxCount: 1,
     showUploadList: false,
     beforeUpload: (file) => {
@@ -192,7 +194,7 @@ export default function ImageHostPage() {
           </Button>
           <Upload {...uploadProps}>
             <Button type="primary" icon={<UploadOutlined />} loading={uploading}>
-              选择图片
+              选择图片/视频
             </Button>
           </Upload>
         </Space>
@@ -315,14 +317,26 @@ export default function ImageHostPage() {
           }}
         >
           {asset ? (
-            <Image
-              src={asset.url}
-              alt={asset.original_filename}
-              style={{
-                maxHeight: 420,
-                objectFit: 'contain',
-              }}
-            />
+            isVideoAsset(asset) ? (
+              <video
+                src={asset.url}
+                controls
+                style={{
+                  width: '100%',
+                  maxHeight: 420,
+                  objectFit: 'contain',
+                }}
+              />
+            ) : (
+              <Image
+                src={asset.url}
+                alt={asset.original_filename}
+                style={{
+                  maxHeight: 420,
+                  objectFit: 'contain',
+                }}
+              />
+            )
           ) : (
             <FileImageOutlined style={{ fontSize: 64, color: token.colorTextTertiary }} />
           )}
@@ -331,7 +345,7 @@ export default function ImageHostPage() {
 
       <Flex vertical gap={12}>
         <Typography.Title level={4} style={{ margin: 0 }}>
-          历史图片
+          历史图片/视频
         </Typography.Title>
         <Spin spinning={loadingList}>
           <List
@@ -345,7 +359,7 @@ export default function ImageHostPage() {
               xxl: 6,
             }}
             dataSource={assets}
-            locale={{ emptyText: '暂无图片' }}
+            locale={{ emptyText: '暂无图片或视频' }}
             pagination={{
               current: page,
               pageSize,
@@ -381,15 +395,19 @@ export default function ImageHostPage() {
                       borderRadius: 6,
                     }}
                   >
-                    <Image
-                      src={item.url}
-                      alt={item.original_filename}
-                      preview={false}
-                      style={{
-                        maxHeight: 150,
-                        objectFit: 'contain',
-                      }}
-                    />
+                    {isVideoAsset(item) ? (
+                      <FileOutlined style={{ fontSize: 46, color: token.colorTextTertiary }} />
+                    ) : (
+                      <Image
+                        src={item.url}
+                        alt={item.original_filename}
+                        preview={false}
+                        style={{
+                          maxHeight: 150,
+                          objectFit: 'contain',
+                        }}
+                      />
+                    )}
                   </Flex>
                   <Typography.Text
                     ellipsis={{ tooltip: item.original_filename }}
@@ -428,7 +446,7 @@ export default function ImageHostPage() {
                     </Button>
                   </Space.Compact>
                   <Popconfirm
-                    title="删除图片"
+                    title="删除文件"
                     description="将尝试同时删除飞书侧资源。"
                     okText="删除"
                     cancelText="取消"
