@@ -16,6 +16,20 @@ class ImageHostConfig(BaseSettings):
         default="https://open.feishu.cn/open-apis",
         title="飞书开放平台 API Base URL",
     )
+    feishu_drive_folder_token: str = Field(
+        default="",
+        title="飞书 Drive 图床目录 Token",
+        description="建议创建一个专用云空间文件夹并共享给应用；留空时尝试使用根目录。",
+    )
+    feishu_oauth_scope: str = Field(
+        default="offline_access drive:drive",
+        title="飞书 OAuth 授权范围",
+    )
+    feishu_oauth_refresh_before_expiry_seconds: int = Field(
+        default=3600,
+        ge=60,
+        title="飞书 OAuth 主动刷新提前量秒数",
+    )
     cache_dir: Path = Field(
         default=Path("data") / "image_cache",
         title="图片本地缓存目录",

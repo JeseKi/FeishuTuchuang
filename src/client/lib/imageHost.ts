@@ -4,7 +4,7 @@ export interface ImageAsset {
   id: string
   filename: string
   url: string
-  feishu_image_key: string
+  feishu_file_token: string
   feishu_download_url: string
   original_filename: string
   mime_type: string
@@ -19,13 +19,40 @@ export interface ImageAssetList {
   items: ImageAsset[]
   limit: number
   offset: number
+  total: number
 }
 
-export async function listImageAssets(): Promise<ImageAssetList> {
+export interface FeishuOAuthAuthorize {
+  authorize_url: string
+  callback_url: string
+  state: string
+}
+
+export interface FeishuOAuthStatus {
+  connected: boolean
+  expires_at?: string | null
+  refresh_expires_at?: string | null
+  open_id?: string | null
+  union_id?: string | null
+  user_id?: string | null
+  connected_by_user_id?: number | null
+}
+
+export async function getFeishuOAuthStatus(): Promise<FeishuOAuthStatus> {
+  const response = await api.get<FeishuOAuthStatus>('/images/feishu/oauth/status')
+  return response.data
+}
+
+export async function createFeishuOAuthAuthorizeUrl(): Promise<FeishuOAuthAuthorize> {
+  const response = await api.get<FeishuOAuthAuthorize>('/images/feishu/oauth/authorize')
+  return response.data
+}
+
+export async function listImageAssets(limit = 10, offset = 0): Promise<ImageAssetList> {
   const response = await api.get<ImageAssetList>('/images', {
     params: {
-      limit: 100,
-      offset: 0,
+      limit,
+      offset,
     },
   })
   return response.data
@@ -40,4 +67,8 @@ export async function uploadImageAsset(file: File): Promise<ImageAsset> {
     },
   })
   return response.data
+}
+
+export async function deleteImageAsset(id: string): Promise<void> {
+  await api.delete(`/images/${id}`)
 }

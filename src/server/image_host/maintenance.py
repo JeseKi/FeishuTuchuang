@@ -9,6 +9,7 @@ from contextlib import suppress
 from loguru import logger
 
 from .config import image_host_config
+from .oauth import refresh_oauth_token_if_needed
 from .service import cleanup_expired_cache_files, flush_pending_image_accesses
 
 
@@ -19,10 +20,12 @@ async def run_once() -> None:
     try:
         flushed_count = flush_pending_image_accesses(db)
         deleted_count = cleanup_expired_cache_files(db)
-        if flushed_count or deleted_count:
+        refreshed_oauth = await refresh_oauth_token_if_needed()
+        if flushed_count or deleted_count or refreshed_oauth:
             logger.info(
                 f"图床缓存维护完成：访问时间落库 {flushed_count} 条，"
-                f"清理本地缓存 {deleted_count} 个文件。"
+                f"清理本地缓存 {deleted_count} 个文件，"
+                f"飞书 OAuth 刷新 {'是' if refreshed_oauth else '否'}。"
             )
     except Exception:
         logger.exception("图床缓存维护失败")

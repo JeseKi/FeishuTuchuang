@@ -27,17 +27,22 @@ class FakeImageStorageBackend:
     def __init__(self) -> None:
         self.upload_count = 0
         self.objects: dict[str, bytes] = {}
+        self.deleted_keys: list[str] = []
 
     async def put_image(
         self, *, content: bytes, filename: str, mime_type: str
     ) -> str:
         self.upload_count += 1
-        key = f"fake-image-key-{self.upload_count}"
+        key = f"fake-file-token-{self.upload_count}"
         self.objects[key] = content
         return key
 
-    async def get_image(self, image_key: str) -> bytes:
-        return self.objects[image_key]
+    async def get_image(self, file_token: str) -> bytes:
+        return self.objects[file_token]
+
+    async def delete_image(self, file_token: str) -> None:
+        self.deleted_keys.append(file_token)
+        self.objects.pop(file_token, None)
 
 
 @pytest.fixture
@@ -78,8 +83,10 @@ def test_upload_image_and_get_public_url(
     data = upload_resp.json()
     assert data["filename"].endswith(".png")
     assert data["url"].endswith(f"/i/{data['filename']}")
-    assert data["feishu_image_key"] == "fake-image-key-1"
-    assert data["feishu_download_url"].endswith("/im/v1/images/fake-image-key-1")
+    assert data["feishu_file_token"] == "fake-file-token-1"
+    assert data["feishu_download_url"].endswith(
+        "/drive/v1/files/fake-file-token-1/download"
+    )
     assert data["mime_type"] == "image/png"
     assert data["size_bytes"] == len(PNG_BYTES)
     assert data["last_accessed_at"]
@@ -138,14 +145,15 @@ def test_list_images_returns_database_assets(
 
     assert list_resp.status_code == HTTPStatus.OK, list_resp.text
     data = list_resp.json()
-    assert data["limit"] == 50
+    assert data["limit"] == 10
     assert data["offset"] == 0
+    assert data["total"] == 1
     assert len(data["items"]) == 1
     assert data["items"][0]["id"] == uploaded["id"]
     assert data["items"][0]["url"].endswith(f"/i/{uploaded['filename']}")
-    assert data["items"][0]["feishu_image_key"] == "fake-image-key-1"
+    assert data["items"][0]["feishu_file_token"] == "fake-file-token-1"
     assert data["items"][0]["feishu_download_url"].endswith(
-        "/im/v1/images/fake-image-key-1"
+        "/drive/v1/files/fake-file-token-1/download"
     )
 
 
@@ -189,6 +197,32 @@ def test_upload_rejects_non_image(
 
     assert resp.status_code == HTTPStatus.BAD_REQUEST
     assert fake_storage.upload_count == 0
+
+
+def test_delete_image_removes_remote_local_cache_and_database(
+    test_client,
+    init_test_database,
+    fake_storage,
+    test_db_session: Session,
+):
+    headers = _login_admin(test_client)
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+    asset_id = upload_resp.json()["id"]
+    asset = test_db_session.query(ImageAsset).filter(ImageAsset.id == asset_id).one()
+    cache_file = image_host_config.cache_dir / asset.cache_path
+    assert cache_file.exists()
+
+    delete_resp = test_client.delete(f"/api/images/{asset_id}", headers=headers)
+
+    assert delete_resp.status_code == HTTPStatus.NO_CONTENT, delete_resp.text
+    assert fake_storage.deleted_keys == ["fake-file-token-1"]
+    assert not cache_file.exists()
+    assert test_db_session.query(ImageAsset).filter(ImageAsset.id == asset_id).first() is None
 
 
 def test_access_time_flushes_from_memory_to_database(

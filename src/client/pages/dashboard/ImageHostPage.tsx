@@ -7,6 +7,7 @@ import {
   Image,
   Input,
   List,
+  Popconfirm,
   Space,
   Spin,
   Typography,
@@ -18,12 +19,21 @@ import {
 import {
   CheckCircleOutlined,
   CopyOutlined,
+  DeleteOutlined,
   FileImageOutlined,
   LinkOutlined,
   ReloadOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
-import { listImageAssets, uploadImageAsset, type ImageAsset } from '../../lib/imageHost'
+import {
+  createFeishuOAuthAuthorizeUrl,
+  deleteImageAsset,
+  getFeishuOAuthStatus,
+  listImageAssets,
+  uploadImageAsset,
+  type ImageAsset,
+  type FeishuOAuthStatus,
+} from '../../lib/imageHost'
 import { resolveApiErrorMessage } from '../../lib/error'
 
 function formatBytes(value: number): string {
@@ -49,15 +59,22 @@ export default function ImageHostPage() {
   const [assets, setAssets] = useState<ImageAsset[]>([])
   const [uploading, setUploading] = useState(false)
   const [loadingList, setLoadingList] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [oauthStatus, setOauthStatus] = useState<FeishuOAuthStatus | null>(null)
+  const [connectingFeishu, setConnectingFeishu] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [messageApi, contextHolder] = message.useMessage()
+  const pageSize = 10
 
-  const loadAssets = useCallback(async () => {
+  const loadAssets = useCallback(async (targetPage: number) => {
     setLoadingList(true)
     setError(null)
     try {
-      const result = await listImageAssets()
+      const result = await listImageAssets(pageSize, (targetPage - 1) * pageSize)
       setAssets(result.items)
+      setTotal(result.total)
       setAsset((current) => current ?? result.items[0] ?? null)
     } catch (err) {
       setError(resolveApiErrorMessage(err))
@@ -67,8 +84,20 @@ export default function ImageHostPage() {
   }, [])
 
   useEffect(() => {
-    void loadAssets()
+    void loadAssets(1)
   }, [loadAssets])
+
+  const loadOAuthStatus = useCallback(async () => {
+    try {
+      setOauthStatus(await getFeishuOAuthStatus())
+    } catch (err) {
+      setError(resolveApiErrorMessage(err))
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadOAuthStatus()
+  }, [loadOAuthStatus])
 
   const handleUpload = useCallback(async (file: File) => {
     setUploading(true)
@@ -76,7 +105,8 @@ export default function ImageHostPage() {
     try {
       const result = await uploadImageAsset(file)
       setAsset(result)
-      await loadAssets()
+      setPage(1)
+      await loadAssets(1)
       void messageApi.success(result.reused_existing ? '已复用现有图片' : '上传完成')
     } catch (err) {
       setError(resolveApiErrorMessage(err))
@@ -84,6 +114,38 @@ export default function ImageHostPage() {
       setUploading(false)
     }
   }, [loadAssets, messageApi])
+
+  const handleDelete = async (target: ImageAsset) => {
+    setDeletingId(target.id)
+    setError(null)
+    try {
+      await deleteImageAsset(target.id)
+      void messageApi.success('图片已删除')
+      if (asset?.id === target.id) {
+        setAsset(null)
+      }
+      await loadAssets(page)
+    } catch (err) {
+      setError(resolveApiErrorMessage(err))
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const connectFeishuDrive = async () => {
+    setConnectingFeishu(true)
+    setError(null)
+    try {
+      const result = await createFeishuOAuthAuthorizeUrl()
+      window.open(result.authorize_url, '_blank', 'noopener,noreferrer')
+      await navigator.clipboard.writeText(result.callback_url)
+      void messageApi.success('已打开飞书授权页，回调地址已复制')
+    } catch (err) {
+      setError(resolveApiErrorMessage(err))
+    } finally {
+      setConnectingFeishu(false)
+    }
+  }
 
   const uploadProps = useMemo<UploadProps>(() => ({
     accept: 'image/*',
@@ -118,7 +180,14 @@ export default function ImageHostPage() {
           </Typography.Title>
         </Space>
         <Space wrap>
-          <Button icon={<ReloadOutlined />} loading={loadingList} onClick={loadAssets}>
+          <Button
+            icon={<LinkOutlined />}
+            loading={connectingFeishu}
+            onClick={connectFeishuDrive}
+          >
+            {oauthStatus?.connected ? '重新连接飞书' : '连接飞书 Drive'}
+          </Button>
+          <Button icon={<ReloadOutlined />} loading={loadingList} onClick={() => loadAssets(page)}>
             刷新
           </Button>
           <Upload {...uploadProps}>
@@ -136,6 +205,14 @@ export default function ImageHostPage() {
           message={error}
           closable
           onClose={() => setError(null)}
+        />
+      )}
+
+      {oauthStatus && !oauthStatus.connected && (
+        <Alert
+          type="warning"
+          showIcon
+          message="尚未连接飞书 Drive，上传、回源和删除需要先完成飞书用户授权。"
         />
       )}
 
@@ -185,9 +262,9 @@ export default function ImageHostPage() {
               />
             }
           />
-          <Typography.Text type="secondary">飞书图片 Key</Typography.Text>
+          <Typography.Text type="secondary">飞书文件 Token</Typography.Text>
           <Input
-            value={asset?.feishu_image_key ?? ''}
+            value={asset?.feishu_file_token ?? ''}
             readOnly
             prefix={<FileImageOutlined />}
             suffix={
@@ -196,7 +273,7 @@ export default function ImageHostPage() {
                 size="small"
                 icon={<CopyOutlined />}
                 disabled={!asset}
-                onClick={() => copyText(asset?.feishu_image_key ?? '', '飞书 Key 已复制')}
+                onClick={() => copyText(asset?.feishu_file_token ?? '', '飞书 Token 已复制')}
               />
             }
           />
@@ -269,6 +346,16 @@ export default function ImageHostPage() {
             }}
             dataSource={assets}
             locale={{ emptyText: '暂无图片' }}
+            pagination={{
+              current: page,
+              pageSize,
+              total,
+              showSizeChanger: false,
+              onChange: (nextPage) => {
+                setPage(nextPage)
+                void loadAssets(nextPage)
+              },
+            }}
             renderItem={(item) => (
               <List.Item>
                 <Flex
@@ -333,13 +420,36 @@ export default function ImageHostPage() {
                       icon={<CopyOutlined />}
                       onClick={(event) => {
                         event.stopPropagation()
-                        void copyText(item.feishu_image_key, '飞书 Key 已复制')
+                        void copyText(item.feishu_file_token, '飞书 Token 已复制')
                       }}
                       style={{ width: '50%' }}
                     >
                       飞书
                     </Button>
                   </Space.Compact>
+                  <Popconfirm
+                    title="删除图片"
+                    description="将尝试同时删除飞书侧资源。"
+                    okText="删除"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={(event) => {
+                      event?.stopPropagation()
+                      void handleDelete(item)
+                    }}
+                    onCancel={(event) => event?.stopPropagation()}
+                  >
+                    <Button
+                      danger
+                      block
+                      size="small"
+                      icon={<DeleteOutlined />}
+                      loading={deletingId === item.id}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      删除
+                    </Button>
+                  </Popconfirm>
                 </Flex>
               </List.Item>
             )}

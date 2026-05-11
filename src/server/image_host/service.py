@@ -65,12 +65,29 @@ async def upload_image(
     if existing:
         _ensure_cache_file(existing, content)
         record_image_access(existing.id, now)
+        if not existing.feishu_file_token:
+            file_token = await get_storage_backend().put_image(
+                content=content,
+                filename=f"{existing.id}.{extension}",
+                mime_type=mime_type,
+            )
+            existing = await run_in_thread(
+                lambda: ImageAssetDAO(db).update_drive_storage(
+                    existing,
+                    feishu_file_token=file_token,
+                    extension=extension,
+                    mime_type=mime_type,
+                    size_bytes=len(content),
+                    cache_path=str(_build_cache_path(existing.id, extension)),
+                    last_accessed_at=now,
+                )
+            )
         return existing, True
 
     asset_id = sha256[:32]
     cache_path = _build_cache_path(asset_id, extension)
     filename = f"{asset_id}.{extension}"
-    feishu_image_key = await get_storage_backend().put_image(
+    feishu_file_token = await get_storage_backend().put_image(
         content=content,
         filename=filename,
         mime_type=mime_type,
@@ -86,7 +103,7 @@ async def upload_image(
                 extension=extension,
                 mime_type=mime_type,
                 size_bytes=len(content),
-                feishu_image_key=feishu_image_key,
+                feishu_file_token=feishu_file_token,
                 cache_path=str(cache_path),
                 uploaded_by_user_id=current_user.id,
                 last_accessed_at=now,
@@ -108,13 +125,15 @@ async def get_image_file(db: Session, *, filename: str) -> tuple[Path, str]:
     asset = await run_in_thread(lambda: ImageAssetDAO(db).get(asset_id))
     if not asset or asset.extension != extension:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="图片不存在")
+    if not asset.feishu_file_token:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="图片不存在")
     record_image_access(asset.id)
 
     cache_file = _cache_root() / asset.cache_path
     if cache_file.exists():
         return cache_file, asset.mime_type
 
-    content = await get_storage_backend().get_image(asset.feishu_image_key)
+    content = await get_storage_backend().get_image(asset.feishu_file_token)
     _write_cache_file(Path(asset.cache_path), content)
     return _cache_root() / asset.cache_path, asset.mime_type
 
@@ -123,6 +142,32 @@ async def list_images(db: Session, *, limit: int, offset: int) -> list[ImageAsse
     return await run_in_thread(
         lambda: ImageAssetDAO(db).list_assets(limit=limit, offset=offset)
     )
+
+
+async def count_images(db: Session) -> int:
+    return await run_in_thread(lambda: ImageAssetDAO(db).count_assets())
+
+
+async def delete_image_asset(
+    db: Session,
+    *,
+    asset_id: str,
+    delete_remote: bool = True,
+) -> None:
+    asset = await run_in_thread(lambda: ImageAssetDAO(db).get(asset_id))
+    if not asset:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="图片不存在")
+    if not asset.feishu_file_token:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="图片不存在")
+
+    if delete_remote:
+        await get_storage_backend().delete_image(asset.feishu_file_token)
+
+    cache_file = _cache_root() / asset.cache_path
+    if cache_file.exists() and cache_file.is_file():
+        cache_file.unlink()
+
+    await run_in_thread(lambda: ImageAssetDAO(db).delete(asset))
 
 
 def record_image_access(
@@ -185,7 +230,7 @@ def to_output(request: Request, asset: ImageAsset, reused_existing: bool) -> dic
         "id": asset.id,
         "filename": filename,
         "url": build_public_url(request, asset),
-        "feishu_image_key": asset.feishu_image_key,
+        "feishu_file_token": asset.feishu_file_token,
         "feishu_download_url": _build_feishu_download_url(asset),
         "original_filename": asset.original_filename,
         "mime_type": asset.mime_type,
@@ -197,17 +242,25 @@ def to_output(request: Request, asset: ImageAsset, reused_existing: bool) -> dic
     }
 
 
-def to_list_output(request: Request, assets: list[ImageAsset], *, limit: int, offset: int) -> dict:
+def to_list_output(
+    request: Request,
+    assets: list[ImageAsset],
+    *,
+    limit: int,
+    offset: int,
+    total: int,
+) -> dict:
     return {
         "items": [to_output(request, asset, False) for asset in assets],
         "limit": limit,
         "offset": offset,
+        "total": total,
     }
 
 
 def _build_feishu_download_url(asset: ImageAsset) -> str:
     base_url = image_host_config.feishu_api_base_url.rstrip("/")
-    return f"{base_url}/im/v1/images/{asset.feishu_image_key}"
+    return f"{base_url}/drive/v1/files/{asset.feishu_file_token}/download"
 
 
 def _validate_size(content: bytes) -> None:

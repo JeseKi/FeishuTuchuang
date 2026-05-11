@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Query, Request, Security, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Path, Query, Request, Security, UploadFile, status
+from fastapi.responses import HTMLResponse, FileResponse
 from sqlalchemy.orm import Session
 
 from src.server.auth.dependencies import get_current_user
@@ -14,10 +14,59 @@ from src.server.auth.models import User
 from src.server.auth.service.scopes import SCOPE_PROFILE_READ
 from src.server.database import get_db
 
-from . import service
-from .schemas import ImageAssetListOut, ImageAssetOut
+from . import oauth, service
+from .schemas import (
+    IMAGE_ASSET_ID_PATTERN,
+    FeishuOAuthAuthorizeOut,
+    FeishuOAuthStatusOut,
+    ImageAssetListOut,
+    ImageAssetOut,
+)
 
 router = APIRouter(tags=["图床"])
+
+
+@router.get(
+    "/api/images/feishu/oauth/status",
+    response_model=FeishuOAuthStatusOut,
+    summary="获取飞书 Drive 授权状态",
+)
+async def get_feishu_oauth_status(
+    _: User = Security(get_current_user, scopes=[SCOPE_PROFILE_READ]),
+):
+    return oauth.get_oauth_status()
+
+
+@router.get(
+    "/api/images/feishu/oauth/authorize",
+    response_model=FeishuOAuthAuthorizeOut,
+    summary="生成飞书 Drive 用户授权链接",
+)
+async def create_feishu_oauth_authorize_url(
+    request: Request,
+    _: User = Security(get_current_user, scopes=[SCOPE_PROFILE_READ]),
+):
+    return oauth.create_authorize_url(request)
+
+
+@router.get(
+    "/api/images/feishu/oauth/callback",
+    response_class=HTMLResponse,
+    summary="飞书 Drive OAuth 回调",
+)
+async def feishu_oauth_callback(
+    code: str,
+    state: str | None = None,
+):
+    await oauth.handle_callback(code, state)
+    return HTMLResponse(
+        "<!doctype html><meta charset='utf-8'>"
+        "<title>飞书授权完成</title>"
+        "<body style='font-family: sans-serif; padding: 24px'>"
+        "<h2>飞书 Drive 授权完成</h2>"
+        "<p>现在可以关闭这个页面并返回图床管理页。</p>"
+        "</body>"
+    )
 
 
 @router.get(
@@ -28,13 +77,20 @@ router = APIRouter(tags=["图床"])
 )
 async def list_images(
     request: Request,
-    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    limit: Annotated[int, Query(ge=1, le=100)] = 10,
     offset: Annotated[int, Query(ge=0)] = 0,
     db: Session = Depends(get_db),
     _: User = Security(get_current_user, scopes=[SCOPE_PROFILE_READ]),
 ):
     assets = await service.list_images(db, limit=limit, offset=offset)
-    return service.to_list_output(request, assets, limit=limit, offset=offset)
+    total = await service.count_images(db)
+    return service.to_list_output(
+        request,
+        assets,
+        limit=limit,
+        offset=offset,
+        total=total,
+    )
 
 
 @router.post(
@@ -56,6 +112,21 @@ async def upload_image(
         current_user=current_user,
     )
     return service.to_output(request, asset, reused_existing)
+
+
+@router.delete(
+    "/api/images/{asset_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="删除图床图片",
+    description="删除飞书 Drive 文件、本地缓存和数据库记录。",
+)
+async def delete_image(
+    asset_id: Annotated[str, Path(pattern=IMAGE_ASSET_ID_PATTERN)],
+    delete_remote: Annotated[bool, Query()] = True,
+    db: Session = Depends(get_db),
+    _: User = Security(get_current_user, scopes=[SCOPE_PROFILE_READ]),
+):
+    await service.delete_image_asset(db, asset_id=asset_id, delete_remote=delete_remote)
 
 
 @router.get(

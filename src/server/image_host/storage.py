@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
-import time
-from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
 from fastapi import HTTPException, status
 
 from .config import image_host_config
+from .oauth import get_valid_user_access_token
 
 
 class ImageStorageBackend(Protocol):
@@ -20,92 +19,100 @@ class ImageStorageBackend(Protocol):
         """上传图片并返回后端资源 key。"""
         ...
 
-    async def get_image(self, image_key: str) -> bytes:
+    async def get_image(self, file_token: str) -> bytes:
         """按后端资源 key 下载图片内容。"""
         ...
 
-
-@dataclass
-class _TenantToken:
-    value: str
-    expires_at: float
+    async def delete_image(self, file_token: str) -> None:
+        """删除后端资源。"""
+        ...
 
 
-class FeishuImageStorageBackend:
-    """基于飞书 IM 图片 API 的冷存储后端。"""
+class FeishuDriveStorageBackend:
+    """基于飞书 Drive 文件 API 的冷存储后端。"""
 
     def __init__(self) -> None:
-        self._token: _TenantToken | None = None
+        self._root_folder_token: str | None = None
 
     async def put_image(
         self, *, content: bytes, filename: str, mime_type: str
     ) -> str:
-        token = await self._get_tenant_access_token()
-        url = f"{self._base_url}/im/v1/images"
-        files = {
-            "image": (filename, content, mime_type),
+        token = await get_valid_user_access_token()
+        folder_token = await self._get_upload_folder_token()
+        url = f"{self._base_url}/drive/v1/files/upload_all"
+        data = {
+            "file_name": filename,
+            "parent_type": "explorer",
+            "parent_node": folder_token,
+            "size": str(len(content)),
         }
-        data = {"image_type": "message"}
+        files = {
+            "file": (filename, content, mime_type),
+        }
         headers = {"Authorization": f"Bearer {token}"}
 
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(url, data=data, files=files, headers=headers)
 
-        payload = self._json_or_error(response, "飞书图片上传失败")
-        image_key = payload.get("data", {}).get("image_key")
-        if not image_key:
+        payload = self._json_or_error(response, "飞书 Drive 文件上传失败")
+        file_token = payload.get("data", {}).get("file_token")
+        if not file_token:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="飞书图片上传响应缺少 image_key",
+                detail="飞书 Drive 文件上传响应缺少 file_token",
             )
-        return str(image_key)
+        return str(file_token)
 
-    async def get_image(self, image_key: str) -> bytes:
-        token = await self._get_tenant_access_token()
-        url = f"{self._base_url}/im/v1/images/{image_key}"
+    async def get_image(self, file_token: str) -> bytes:
+        token = await get_valid_user_access_token()
+        url = f"{self._base_url}/drive/v1/files/{file_token}/download"
         headers = {"Authorization": f"Bearer {token}"}
 
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=60) as client:
             response = await client.get(url, headers=headers)
 
         if response.status_code >= 400:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"飞书图片下载失败：HTTP {response.status_code}",
+                detail=f"飞书 Drive 文件下载失败：HTTP {response.status_code}",
             )
         return response.content
 
-    async def _get_tenant_access_token(self) -> str:
-        now = time.time()
-        if self._token and self._token.expires_at > now + 60:
-            return self._token.value
+    async def delete_image(self, file_token: str) -> None:
+        token = await get_valid_user_access_token()
+        url = f"{self._base_url}/drive/v1/files/{file_token}"
+        headers = {"Authorization": f"Bearer {token}"}
+        params = {"type": "file"}
 
-        if not image_host_config.feishu_app_id or not image_host_config.feishu_app_secret:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.delete(url, params=params, headers=headers)
+
+        self._json_or_error(response, "飞书 Drive 文件删除失败")
+
+    async def _get_upload_folder_token(self) -> str:
+        if image_host_config.feishu_drive_folder_token:
+            return image_host_config.feishu_drive_folder_token
+        if self._root_folder_token:
+            return self._root_folder_token
+
+        token = await get_valid_user_access_token()
+        url = f"{self._base_url}/drive/explorer/v2/root_folder/meta"
+        headers = {"Authorization": f"Bearer {token}"}
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(url, headers=headers)
+        payload = self._json_or_error(response, "获取飞书 Drive 根目录失败")
+        folder_token = payload.get("data", {}).get("token")
+        if not folder_token:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="未配置 IMAGE_HOST_FEISHU_APP_ID/IMAGE_HOST_FEISHU_APP_SECRET",
+                detail=(
+                    "未配置 IMAGE_HOST_FEISHU_DRIVE_FOLDER_TOKEN，且无法获取 "
+                    "Drive 根目录。请创建图床专用文件夹并将 folder token "
+                    "配置到该环境变量。"
+                ),
             )
-
-        url = f"{self._base_url}/auth/v3/tenant_access_token/internal"
-        body = {
-            "app_id": image_host_config.feishu_app_id,
-            "app_secret": image_host_config.feishu_app_secret,
-        }
-
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(url, json=body)
-
-        payload = self._json_or_error(response, "获取飞书 tenant_access_token 失败")
-        token = payload.get("tenant_access_token")
-        expire = int(payload.get("expire") or 7200)
-        if not token:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="飞书 token 响应缺少 tenant_access_token",
-            )
-
-        self._token = _TenantToken(value=str(token), expires_at=now + expire)
-        return self._token.value
+        self._root_folder_token = str(folder_token)
+        return self._root_folder_token
 
     @property
     def _base_url(self) -> str:
@@ -134,7 +141,7 @@ class FeishuImageStorageBackend:
         return payload
 
 
-_storage_backend: ImageStorageBackend = FeishuImageStorageBackend()
+_storage_backend: ImageStorageBackend = FeishuDriveStorageBackend()
 
 
 def get_storage_backend() -> ImageStorageBackend:
