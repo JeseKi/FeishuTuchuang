@@ -66,9 +66,19 @@ async def lifespan(_: FastAPI):
     finally:
         db.close()
 
+    from src.server.image_host.maintenance import (
+        start_maintenance_task,
+        stop_maintenance_task,
+    )
+
+    image_cache_maintenance_task = start_maintenance_task()
+
     logger.success("应用启动完成。")
-    yield
-    logger.info("应用已关闭。")
+    try:
+        yield
+    finally:
+        await stop_maintenance_task(image_cache_maintenance_task)
+        logger.info("应用已关闭。")
 
 
 # --- 应用实例与中间件 ---

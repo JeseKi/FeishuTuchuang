@@ -11,6 +11,7 @@ export interface ImageAsset {
   size_bytes: number
   sha256: string
   created_at: string
+  last_accessed_at: string
   reused_existing: boolean
 }
 

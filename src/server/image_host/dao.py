@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from src.server.dao.dao_base import BaseDAO
@@ -26,6 +29,7 @@ class ImageAssetDAO(BaseDAO):
         feishu_image_key: str,
         cache_path: str,
         uploaded_by_user_id: int | None,
+        last_accessed_at: datetime,
     ) -> ImageAsset:
         asset = ImageAsset(
             id=asset_id,
@@ -37,6 +41,7 @@ class ImageAssetDAO(BaseDAO):
             feishu_image_key=feishu_image_key,
             cache_path=cache_path,
             uploaded_by_user_id=uploaded_by_user_id,
+            last_accessed_at=last_accessed_at,
         )
         self.db_session.add(asset)
         self.db_session.commit()
@@ -57,11 +62,40 @@ class ImageAssetDAO(BaseDAO):
             .first()
         )
 
-    def list(self, *, limit: int, offset: int) -> list[ImageAsset]:
+    def list_assets(self, *, limit: int, offset: int) -> list[ImageAsset]:
         return (
             self.db_session.query(ImageAsset)
             .order_by(ImageAsset.created_at.desc(), ImageAsset.id.desc())
             .offset(offset)
             .limit(limit)
+            .all()
+        )
+
+    def update_last_accessed_at(self, access_times: dict[str, datetime]) -> int:
+        updated_count = 0
+        for asset_id, accessed_at in access_times.items():
+            updated_count += (
+                self.db_session.query(ImageAsset)
+                .filter(ImageAsset.id == asset_id)
+                .update(
+                    {
+                        ImageAsset.last_accessed_at: accessed_at,
+                        ImageAsset.updated_at: datetime.now(accessed_at.tzinfo),
+                    },
+                    synchronize_session=False,
+                )
+            )
+        self.db_session.commit()
+        return updated_count
+
+    def list_stale_cache_assets(self, cutoff: datetime) -> list[ImageAsset]:
+        return (
+            self.db_session.query(ImageAsset)
+            .filter(
+                or_(
+                    ImageAsset.last_accessed_at.is_(None),
+                    ImageAsset.last_accessed_at < cutoff,
+                )
+            )
             .all()
         )

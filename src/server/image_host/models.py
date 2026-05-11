@@ -25,6 +25,11 @@ class ImageAsset(Base):
     feishu_image_key: Mapped[str] = mapped_column(String(255), nullable=False)
     cache_path: Mapped[str] = mapped_column(String(500), nullable=False)
     uploaded_by_user_id: Mapped[int | None] = mapped_column(Integer, default=None)
+    last_accessed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

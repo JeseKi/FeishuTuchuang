@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from threading import Lock
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request, UploadFile, status
 from sqlalchemy.exc import IntegrityError
@@ -42,6 +44,8 @@ MAGIC_MIME = (
     (b"MM\x00*", "image/tiff"),
 )
 MAX_HEIC_BRAND_SCAN_BYTES = 32
+_pending_access_times: dict[str, datetime] = {}
+_pending_access_lock = Lock()
 
 
 async def upload_image(
@@ -52,6 +56,7 @@ async def upload_image(
 ) -> tuple[ImageAsset, bool]:
     content = await upload.read()
     _validate_size(content)
+    now = datetime.now(timezone.utc)
 
     mime_type = _detect_mime_type(content, upload.content_type)
     extension = MIME_TO_EXTENSION[mime_type]
@@ -59,6 +64,7 @@ async def upload_image(
     existing = await run_in_thread(lambda: ImageAssetDAO(db).get_by_sha256(sha256))
     if existing:
         _ensure_cache_file(existing, content)
+        record_image_access(existing.id, now)
         return existing, True
 
     asset_id = sha256[:32]
@@ -83,6 +89,7 @@ async def upload_image(
                 feishu_image_key=feishu_image_key,
                 cache_path=str(cache_path),
                 uploaded_by_user_id=current_user.id,
+                last_accessed_at=now,
             )
 
         asset = await run_in_thread(_create_asset)
@@ -101,6 +108,7 @@ async def get_image_file(db: Session, *, filename: str) -> tuple[Path, str]:
     asset = await run_in_thread(lambda: ImageAssetDAO(db).get(asset_id))
     if not asset or asset.extension != extension:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="图片不存在")
+    record_image_access(asset.id)
 
     cache_file = _cache_root() / asset.cache_path
     if cache_file.exists():
@@ -112,7 +120,54 @@ async def get_image_file(db: Session, *, filename: str) -> tuple[Path, str]:
 
 
 async def list_images(db: Session, *, limit: int, offset: int) -> list[ImageAsset]:
-    return await run_in_thread(lambda: ImageAssetDAO(db).list(limit=limit, offset=offset))
+    return await run_in_thread(
+        lambda: ImageAssetDAO(db).list_assets(limit=limit, offset=offset)
+    )
+
+
+def record_image_access(
+    asset_id: str,
+    accessed_at: datetime | None = None,
+) -> None:
+    if accessed_at is None:
+        accessed_at = datetime.now(timezone.utc)
+    with _pending_access_lock:
+        current = _pending_access_times.get(asset_id)
+        if current is None or accessed_at > current:
+            _pending_access_times[asset_id] = accessed_at
+
+
+def flush_pending_image_accesses(db: Session) -> int:
+    with _pending_access_lock:
+        snapshot = dict(_pending_access_times)
+    if not snapshot:
+        return 0
+
+    updated_count = ImageAssetDAO(db).update_last_accessed_at(snapshot)
+    with _pending_access_lock:
+        for asset_id, flushed_at in snapshot.items():
+            if _pending_access_times.get(asset_id) == flushed_at:
+                del _pending_access_times[asset_id]
+    return updated_count
+
+
+def cleanup_expired_cache_files(
+    db: Session,
+    *,
+    now: datetime | None = None,
+) -> int:
+    if now is None:
+        now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=image_host_config.cache_ttl_hours)
+    stale_assets = ImageAssetDAO(db).list_stale_cache_assets(cutoff)
+    deleted_count = 0
+    cache_root = _cache_root()
+    for asset in stale_assets:
+        cache_file = cache_root / asset.cache_path
+        if cache_file.exists() and cache_file.is_file():
+            cache_file.unlink()
+            deleted_count += 1
+    return deleted_count
 
 
 def build_public_url(request: Request, asset: ImageAsset) -> str:
@@ -137,6 +192,7 @@ def to_output(request: Request, asset: ImageAsset, reused_existing: bool) -> dic
         "size_bytes": asset.size_bytes,
         "sha256": asset.sha256,
         "created_at": asset.created_at,
+        "last_accessed_at": asset.last_accessed_at,
         "reused_existing": reused_existing,
     }
 

@@ -18,6 +18,7 @@
 - `IMAGE_HOST_FEISHU_APP_SECRET`
 - `IMAGE_HOST_CACHE_DIR`，默认 `data/image_cache`
 - `IMAGE_HOST_MAX_UPLOAD_MB`，默认 `10`
+- `IMAGE_HOST_CACHE_TTL_HOURS`，默认 `168`
 - `IMAGE_HOST_PUBLIC_BASE_URL`，例如 `https://img.example.com`
 
 ## 用法示例

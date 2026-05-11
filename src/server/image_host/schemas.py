@@ -20,6 +20,7 @@ class ImageAssetOut(BaseModel):
     size_bytes: int
     sha256: str
     created_at: datetime
+    last_accessed_at: datetime
     reused_existing: bool = False
 
     model_config = ConfigDict(from_attributes=True)

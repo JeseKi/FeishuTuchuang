@@ -36,6 +36,13 @@ function formatBytes(value: number): string {
   return `${(value / 1024 / 1024).toFixed(2)} MB`
 }
 
+function formatDateTime(value?: string): string {
+  if (!value) {
+    return '-'
+  }
+  return new Date(value).toLocaleString()
+}
+
 export default function ImageHostPage() {
   const { token } = theme.useToken()
   const [asset, setAsset] = useState<ImageAsset | null>(null)
@@ -211,6 +218,9 @@ export default function ImageHostPage() {
                 </Space>
               ) : '-'}
             </Descriptions.Item>
+            <Descriptions.Item label="最近访问">
+              {formatDateTime(asset?.last_accessed_at)}
+            </Descriptions.Item>
           </Descriptions>
         </Flex>
 
@@ -266,7 +276,7 @@ export default function ImageHostPage() {
                   gap={8}
                   onClick={() => setAsset(item)}
                   style={{
-                    height: 260,
+                    height: 280,
                     padding: 10,
                     border: `1px solid ${asset?.id === item.id ? token.colorPrimary : token.colorBorder}`,
                     borderRadius: 8,
@@ -302,6 +312,9 @@ export default function ImageHostPage() {
                   </Typography.Text>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                     {formatBytes(item.size_bytes)}
+                  </Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {formatDateTime(item.last_accessed_at)}
                   </Typography.Text>
                   <Space.Compact block>
                     <Button

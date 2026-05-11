@@ -3,11 +3,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 
 import pytest
+from sqlalchemy.orm import Session
 
+from src.server.image_host import service
 from src.server.image_host.config import image_host_config
+from src.server.image_host.models import ImageAsset
 
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n"
@@ -78,6 +82,7 @@ def test_upload_image_and_get_public_url(
     assert data["feishu_download_url"].endswith("/im/v1/images/fake-image-key-1")
     assert data["mime_type"] == "image/png"
     assert data["size_bytes"] == len(PNG_BYTES)
+    assert data["last_accessed_at"]
     assert data["reused_existing"] is False
     assert fake_storage.upload_count == 1
 
@@ -184,3 +189,56 @@ def test_upload_rejects_non_image(
 
     assert resp.status_code == HTTPStatus.BAD_REQUEST
     assert fake_storage.upload_count == 0
+
+
+def test_access_time_flushes_from_memory_to_database(
+    test_client,
+    init_test_database,
+    fake_storage,
+    test_db_session: Session,
+):
+    headers = _login_admin(test_client)
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+    asset_id = upload_resp.json()["id"]
+    accessed_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+    service.record_image_access(asset_id, accessed_at)
+    flushed_count = service.flush_pending_image_accesses(test_db_session)
+    flushed_again_count = service.flush_pending_image_accesses(test_db_session)
+
+    asset = test_db_session.query(ImageAsset).filter(ImageAsset.id == asset_id).one()
+    assert flushed_count == 1
+    assert flushed_again_count == 0
+    assert asset.last_accessed_at.replace(tzinfo=timezone.utc) == accessed_at
+
+
+def test_cleanup_expired_cache_files_removes_only_stale_local_cache(
+    test_client,
+    init_test_database,
+    fake_storage,
+    test_db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    headers = _login_admin(test_client)
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+    asset_id = upload_resp.json()["id"]
+    asset = test_db_session.query(ImageAsset).filter(ImageAsset.id == asset_id).one()
+    cache_file = image_host_config.cache_dir / asset.cache_path
+    assert cache_file.exists()
+
+    monkeypatch.setattr(image_host_config, "cache_ttl_hours", 168)
+    asset.last_accessed_at = datetime.now(timezone.utc) - timedelta(hours=169)
+    test_db_session.commit()
+
+    deleted_count = service.cleanup_expired_cache_files(test_db_session)
+
+    assert deleted_count == 1
+    assert not cache_file.exists()

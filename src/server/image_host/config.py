@@ -21,6 +21,16 @@ class ImageHostConfig(BaseSettings):
         title="图片本地缓存目录",
     )
     max_upload_mb: int = Field(default=10, ge=1, le=100, title="最大上传大小 MB")
+    cache_ttl_hours: int = Field(
+        default=168,
+        ge=1,
+        title="本地图片缓存保留小时数",
+    )
+    access_flush_interval_seconds: int = Field(
+        default=60,
+        ge=1,
+        title="图片访问时间落库间隔秒数",
+    )
     public_base_url: str = Field(
         default="",
         title="图床外部访问 Base URL",
