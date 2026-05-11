@@ -6,16 +6,23 @@ import {
   Flex,
   Form,
   Input,
+  List,
+  Popconfirm,
   QRCode,
   Space,
+  Tag,
   Typography,
 } from 'antd'
 import {
+  DeleteOutlined,
+  KeyOutlined,
   LockOutlined,
+  PlusOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../../hooks/useAuth'
+import { createApiKey, listApiKeys, revokeApiKey, type ApiKey } from '../../lib/apiKeys'
 import { resolveApiErrorMessage } from '../../lib/error'
 
 export default function SecurityPage() {
@@ -30,10 +37,15 @@ export default function SecurityPage() {
 
   const [twoFactorSetupForm] = Form.useForm<{ code: string }>()
   const [disableTwoFactorForm] = Form.useForm<{ password: string; code: string }>()
+  const [apiKeyForm] = Form.useForm<{ name: string }>()
 
   const [passwordSending, setPasswordSending] = useState(false)
   const [passwordCountdown, setPasswordCountdown] = useState(0)
   const [passwordHint, setPasswordHint] = useState<string | null>(null)
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
+  const [apiKeysLoading, setApiKeysLoading] = useState(false)
+  const [apiKeyCreating, setApiKeyCreating] = useState(false)
+  const [createdApiKey, setCreatedApiKey] = useState<string | null>(null)
   const [twoFactorSetupData, setTwoFactorSetupData] = useState<{
     secret: string
     secret_masked: string
@@ -56,6 +68,55 @@ export default function SecurityPage() {
 
     return () => window.clearInterval(timer)
   }, [passwordCountdown])
+
+  const refreshApiKeys = useCallback(async () => {
+    setApiKeysLoading(true)
+    try {
+      const result = await listApiKeys()
+      setApiKeys(result)
+    } catch (error) {
+      message.error(resolveApiErrorMessage(error, 'API Key 列表加载失败。'))
+    } finally {
+      setApiKeysLoading(false)
+    }
+  }, [message])
+
+  useEffect(() => {
+    void refreshApiKeys()
+  }, [refreshApiKeys])
+
+  const handleCreateApiKey = async (values: { name: string }) => {
+    setApiKeyCreating(true)
+    setCreatedApiKey(null)
+    try {
+      const result = await createApiKey({ name: values.name, scopes: ['images:write'] })
+      setCreatedApiKey(result.key)
+      apiKeyForm.resetFields()
+      await refreshApiKeys()
+      message.success('API Key 已创建')
+    } catch (error) {
+      message.error(resolveApiErrorMessage(error, 'API Key 创建失败。'))
+    } finally {
+      setApiKeyCreating(false)
+    }
+  }
+
+  const handleRevokeApiKey = async (id: number) => {
+    try {
+      await revokeApiKey(id)
+      await refreshApiKeys()
+      message.success('API Key 已撤销')
+    } catch (error) {
+      message.error(resolveApiErrorMessage(error, 'API Key 撤销失败。'))
+    }
+  }
+
+  const formatDateTime = (value?: string | null) => {
+    if (!value) {
+      return '-'
+    }
+    return new Date(value).toLocaleString()
+  }
 
   const handleSendPasswordLink = async () => {
     if (passwordSending || passwordCountdown > 0) {
@@ -166,6 +227,96 @@ export default function SecurityPage() {
             {passwordCountdown > 0 ? `${passwordCountdown}s 后可重发` : '发送确认链接'}
           </Button>
           {passwordHint && <Alert type="info" showIcon message={passwordHint} />}
+        </Space>
+      </Card>
+
+      <Card title="API Key" bordered={false}>
+        <Space direction="vertical" size={24} style={{ width: '100%' }}>
+          <Typography.Text type="secondary">
+            API Key 可用于远程脚本或图床软件调用 v1 API。明文只会在创建后显示一次。
+          </Typography.Text>
+
+          <Form
+            form={apiKeyForm}
+            layout="inline"
+            onFinish={handleCreateApiKey}
+            requiredMark={false}
+          >
+            <Form.Item
+              name="name"
+              rules={[{ required: true, message: '请输入名称' }]}
+              style={{ minWidth: 260 }}
+            >
+              <Input prefix={<KeyOutlined />} placeholder="例如 PicGo" allowClear size="large" />
+            </Form.Item>
+            <Form.Item>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                htmlType="submit"
+                loading={apiKeyCreating}
+                size="large"
+              >
+                创建 API Key
+              </Button>
+            </Form.Item>
+          </Form>
+
+          {createdApiKey && (
+            <Alert
+              type="success"
+              showIcon
+              message={
+                <Space direction="vertical" size={8}>
+                  <Typography.Text>请立即保存此 API Key，关闭页面后无法再次查看。</Typography.Text>
+                  <Typography.Text copyable={{ text: createdApiKey }} code>
+                    {createdApiKey}
+                  </Typography.Text>
+                </Space>
+              }
+            />
+          )}
+
+          <List
+            loading={apiKeysLoading}
+            dataSource={apiKeys}
+            locale={{ emptyText: '暂无 API Key' }}
+            renderItem={(item) => {
+              const revoked = Boolean(item.revoked_at)
+              return (
+                <List.Item
+                  actions={[
+                    <Popconfirm
+                      key="revoke"
+                      title="撤销 API Key"
+                      description="撤销后使用此 key 的外部集成会立即失效。"
+                      okText="撤销"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                      disabled={revoked}
+                      onConfirm={() => void handleRevokeApiKey(item.id)}
+                    >
+                      <Button danger icon={<DeleteOutlined />} disabled={revoked}>
+                        撤销
+                      </Button>
+                    </Popconfirm>,
+                  ]}
+                >
+                  <List.Item.Meta
+                    avatar={<KeyOutlined style={{ fontSize: 20 }} />}
+                    title={
+                      <Space wrap>
+                        <Typography.Text strong>{item.name}</Typography.Text>
+                        <Typography.Text code>{item.key_prefix}...</Typography.Text>
+                        {revoked ? <Tag color="red">已撤销</Tag> : <Tag color="green">可用</Tag>}
+                      </Space>
+                    }
+                    description={`创建于 ${formatDateTime(item.created_at)}，最后使用 ${formatDateTime(item.last_used_at)}`}
+                  />
+                </List.Item>
+              )
+            }}
+          />
         </Space>
       </Card>
 

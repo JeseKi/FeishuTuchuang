@@ -34,6 +34,7 @@ SCOPE_PROFILE_READ = "profile:read"
 SCOPE_PROFILE_WRITE = "profile:write"
 SCOPE_PROFILE_EMAIL_WRITE = "profile:email:write"
 SCOPE_PROFILE_PASSWORD_WRITE = "profile:password:write"
+SCOPE_IMAGES_WRITE = "images:write"
 SCOPE_ADMIN_USERS_READ = "admin:users:read"
 SCOPE_ADMIN_USERS_WRITE = "admin:users:write"
 
@@ -57,6 +58,11 @@ SCOPE_DEFINITIONS: tuple[ScopeDefinition, ...] = (
         scope=SCOPE_PROFILE_PASSWORD_WRITE,
         title="修改密码",
         description="发起当前用户的密码修改流程。",
+    ),
+    ScopeDefinition(
+        scope=SCOPE_IMAGES_WRITE,
+        title="上传图床图片",
+        description="通过网页或 API Key 上传图片到图床服务。",
     ),
     ScopeDefinition(
         scope=SCOPE_ADMIN_USERS_READ,
@@ -88,12 +94,14 @@ ROLE_SCOPES: dict[UserRole, tuple[str, ...]] = {
         SCOPE_PROFILE_WRITE,
         SCOPE_PROFILE_EMAIL_WRITE,
         SCOPE_PROFILE_PASSWORD_WRITE,
+        SCOPE_IMAGES_WRITE,
     ),
     UserRole.ADMIN: (
         SCOPE_PROFILE_READ,
         SCOPE_PROFILE_WRITE,
         SCOPE_PROFILE_EMAIL_WRITE,
         SCOPE_PROFILE_PASSWORD_WRITE,
+        SCOPE_IMAGES_WRITE,
         SCOPE_ADMIN_USERS_READ,
         SCOPE_ADMIN_USERS_WRITE,
     ),
