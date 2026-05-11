@@ -3,13 +3,20 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+import asyncio
+import zlib
+from typing import Any, Protocol
 
 import httpx
 from fastapi import HTTPException, status
 
 from .config import image_host_config
 from .oauth import get_valid_user_access_token
+
+_UPLOAD_TIMEOUT = httpx.Timeout(180.0, connect=15.0)
+_DEFAULT_TIMEOUT = httpx.Timeout(60.0, connect=15.0)
+_UPLOAD_RETRY_COUNT = 3
+_UPLOAD_RETRY_BACKOFF_SECONDS = 1.5
 
 
 class ImageStorageBackend(Protocol):
@@ -37,29 +44,89 @@ class FeishuDriveStorageBackend:
     async def put_image(
         self, *, content: bytes, filename: str, mime_type: str
     ) -> str:
+        return await self._put_image_chunked(
+            content=content,
+            filename=filename,
+            mime_type=mime_type,
+        )
+
+    async def _put_image_chunked(
+        self, *, content: bytes, filename: str, mime_type: str
+    ) -> str:
         token = await get_valid_user_access_token()
         folder_token = await self._get_upload_folder_token()
-        url = f"{self._base_url}/drive/v1/files/upload_all"
-        data = {
+        headers = {"Authorization": f"Bearer {token}"}
+        prepare_url = f"{self._base_url}/drive/v1/files/upload_prepare"
+        prepare_body = {
             "file_name": filename,
             "parent_type": "explorer",
             "parent_node": folder_token,
-            "size": str(len(content)),
+            "size": len(content),
         }
-        files = {
-            "file": (filename, content, mime_type),
-        }
-        headers = {"Authorization": f"Bearer {token}"}
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(url, data=data, files=files, headers=headers)
+        async with httpx.AsyncClient(timeout=_UPLOAD_TIMEOUT, trust_env=True) as client:
+            prepare_response = await self._post_with_retries(
+                client,
+                prepare_url,
+                json=prepare_body,
+                headers=headers,
+                fallback_detail="飞书 Drive 文件预上传失败",
+            )
+            prepare_payload = self._json_or_error(
+                prepare_response,
+                "飞书 Drive 文件预上传失败",
+            )
+            prepare_data = prepare_payload.get("data", {})
+            upload_id = prepare_data.get("upload_id")
+            block_size = int(prepare_data.get("block_size") or 0)
+            block_num = int(prepare_data.get("block_num") or 0)
+            if not upload_id or block_size <= 0 or block_num <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="飞书 Drive 预上传响应缺少 upload_id/block_size/block_num",
+                )
 
-        payload = self._json_or_error(response, "飞书 Drive 文件上传失败")
+            part_url = f"{self._base_url}/drive/v1/files/upload_part"
+            for seq in range(block_num):
+                start = seq * block_size
+                chunk = content[start : start + block_size]
+                part_data = {
+                    "upload_id": str(upload_id),
+                    "seq": str(seq),
+                    "size": str(len(chunk)),
+                    "checksum": str(_adler32_checksum(chunk)),
+                }
+                part_files = {
+                    "file": (filename, chunk, mime_type),
+                }
+                part_response = await self._post_with_retries(
+                    client,
+                    part_url,
+                    data=part_data,
+                    files=part_files,
+                    headers=headers,
+                    fallback_detail=f"飞书 Drive 文件分片上传失败 seq={seq}",
+                )
+                self._json_or_error(
+                    part_response,
+                    f"飞书 Drive 文件分片上传失败 seq={seq}",
+                )
+
+            finish_url = f"{self._base_url}/drive/v1/files/upload_finish"
+            finish_response = await self._post_with_retries(
+                client,
+                finish_url,
+                json={"upload_id": str(upload_id), "block_num": block_num},
+                headers=headers,
+                fallback_detail="飞书 Drive 文件完成上传失败",
+            )
+
+        payload = self._json_or_error(finish_response, "飞书 Drive 文件完成上传失败")
         file_token = payload.get("data", {}).get("file_token")
         if not file_token:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="飞书 Drive 文件上传响应缺少 file_token",
+                detail="飞书 Drive 完成上传响应缺少 file_token",
             )
         return str(file_token)
 
@@ -68,7 +135,7 @@ class FeishuDriveStorageBackend:
         url = f"{self._base_url}/drive/v1/files/{file_token}/download"
         headers = {"Authorization": f"Bearer {token}"}
 
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT, trust_env=True) as client:
             response = await client.get(url, headers=headers)
 
         if response.status_code >= 400:
@@ -84,7 +151,7 @@ class FeishuDriveStorageBackend:
         headers = {"Authorization": f"Bearer {token}"}
         params = {"type": "file"}
 
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT, trust_env=True) as client:
             response = await client.delete(url, params=params, headers=headers)
 
         self._json_or_error(response, "飞书 Drive 文件删除失败")
@@ -98,7 +165,7 @@ class FeishuDriveStorageBackend:
         token = await get_valid_user_access_token()
         url = f"{self._base_url}/drive/explorer/v2/root_folder/meta"
         headers = {"Authorization": f"Bearer {token}"}
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT, trust_env=True) as client:
             response = await client.get(url, headers=headers)
         payload = self._json_or_error(response, "获取飞书 Drive 根目录失败")
         folder_token = payload.get("data", {}).get("token")
@@ -140,9 +207,53 @@ class FeishuDriveStorageBackend:
             )
         return payload
 
+    async def _post_with_retries(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        *,
+        fallback_detail: str,
+        data: dict[str, str] | None = None,
+        files: Any | None = None,
+        json: dict[str, object] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> httpx.Response:
+        last_request_error: httpx.RequestError | None = None
+        last_response: httpx.Response | None = None
+        for attempt in range(_UPLOAD_RETRY_COUNT):
+            try:
+                response = await client.post(
+                    url,
+                    data=data,
+                    files=files,
+                    json=json,
+                    headers=headers,
+                )
+            except httpx.RequestError as exc:
+                last_request_error = exc
+            else:
+                if response.status_code < 500 and response.status_code != 429:
+                    return response
+                last_response = response
+
+            if attempt < _UPLOAD_RETRY_COUNT - 1:
+                await asyncio.sleep(_UPLOAD_RETRY_BACKOFF_SECONDS * (attempt + 1))
+
+        if last_response is not None:
+            return last_response
+        detail = str(last_request_error) if last_request_error else "请求失败"
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"{fallback_detail}：{detail or '请求超时'}",
+        )
+
 
 _storage_backend: ImageStorageBackend = FeishuDriveStorageBackend()
 
 
 def get_storage_backend() -> ImageStorageBackend:
     return _storage_backend
+
+
+def _adler32_checksum(content: bytes) -> int:
+    return zlib.adler32(content) & 0xFFFFFFFF
