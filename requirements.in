@@ -16,5 +16,6 @@ pytest
 pytest-asyncio
 httpx
 httpx[socks]
+python-multipart
 types-python-jose
 alembic

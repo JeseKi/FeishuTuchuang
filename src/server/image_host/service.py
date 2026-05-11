@@ -1,0 +1,237 @@
+# -*- coding: utf-8 -*-
+"""图床业务服务。"""
+
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+from fastapi import HTTPException, Request, UploadFile, status
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from src.server.auth.models import User
+from src.server.config import global_config
+from src.server.dao.dao_base import run_in_thread
+
+from .config import image_host_config
+from .dao import ImageAssetDAO
+from .models import ImageAsset
+from .storage import get_storage_backend
+
+MIME_TO_EXTENSION = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/bmp": "bmp",
+    "image/x-icon": "ico",
+    "image/vnd.microsoft.icon": "ico",
+    "image/tiff": "tiff",
+    "image/heic": "heic",
+}
+
+MAGIC_MIME = (
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+    (b"BM", "image/bmp"),
+    (b"\x00\x00\x01\x00", "image/x-icon"),
+    (b"II*\x00", "image/tiff"),
+    (b"MM\x00*", "image/tiff"),
+)
+MAX_HEIC_BRAND_SCAN_BYTES = 32
+
+
+async def upload_image(
+    db: Session,
+    *,
+    upload: UploadFile,
+    current_user: User,
+) -> tuple[ImageAsset, bool]:
+    content = await upload.read()
+    _validate_size(content)
+
+    mime_type = _detect_mime_type(content, upload.content_type)
+    extension = MIME_TO_EXTENSION[mime_type]
+    sha256 = hashlib.sha256(content).hexdigest()
+    existing = await run_in_thread(lambda: ImageAssetDAO(db).get_by_sha256(sha256))
+    if existing:
+        _ensure_cache_file(existing, content)
+        return existing, True
+
+    asset_id = sha256[:32]
+    cache_path = _build_cache_path(asset_id, extension)
+    filename = f"{asset_id}.{extension}"
+    feishu_image_key = await get_storage_backend().put_image(
+        content=content,
+        filename=filename,
+        mime_type=mime_type,
+    )
+    _write_cache_file(cache_path, content)
+
+    try:
+        def _create_asset():
+            return ImageAssetDAO(db).create(
+                asset_id=asset_id,
+                sha256=sha256,
+                original_filename=upload.filename or filename,
+                extension=extension,
+                mime_type=mime_type,
+                size_bytes=len(content),
+                feishu_image_key=feishu_image_key,
+                cache_path=str(cache_path),
+                uploaded_by_user_id=current_user.id,
+            )
+
+        asset = await run_in_thread(_create_asset)
+    except IntegrityError:
+        db.rollback()
+        asset = await run_in_thread(lambda: ImageAssetDAO(db).get_by_sha256(sha256))
+        if not asset:
+            raise
+        return asset, True
+
+    return asset, False
+
+
+async def get_image_file(db: Session, *, filename: str) -> tuple[Path, str]:
+    asset_id, extension = _parse_public_filename(filename)
+    asset = await run_in_thread(lambda: ImageAssetDAO(db).get(asset_id))
+    if not asset or asset.extension != extension:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="图片不存在")
+
+    cache_file = _cache_root() / asset.cache_path
+    if cache_file.exists():
+        return cache_file, asset.mime_type
+
+    content = await get_storage_backend().get_image(asset.feishu_image_key)
+    _write_cache_file(Path(asset.cache_path), content)
+    return _cache_root() / asset.cache_path, asset.mime_type
+
+
+async def list_images(db: Session, *, limit: int, offset: int) -> list[ImageAsset]:
+    return await run_in_thread(lambda: ImageAssetDAO(db).list(limit=limit, offset=offset))
+
+
+def build_public_url(request: Request, asset: ImageAsset) -> str:
+    path = f"/i/{asset.id}.{asset.extension}"
+    if image_host_config.public_base_url:
+        return f"{image_host_config.public_base_url.rstrip('/')}{path}"
+    if global_config.app_domain:
+        return f"{global_config.app_domain.rstrip('/')}{path}"
+    return str(request.base_url).rstrip("/") + path
+
+
+def to_output(request: Request, asset: ImageAsset, reused_existing: bool) -> dict:
+    filename = f"{asset.id}.{asset.extension}"
+    return {
+        "id": asset.id,
+        "filename": filename,
+        "url": build_public_url(request, asset),
+        "feishu_image_key": asset.feishu_image_key,
+        "feishu_download_url": _build_feishu_download_url(asset),
+        "original_filename": asset.original_filename,
+        "mime_type": asset.mime_type,
+        "size_bytes": asset.size_bytes,
+        "sha256": asset.sha256,
+        "created_at": asset.created_at,
+        "reused_existing": reused_existing,
+    }
+
+
+def to_list_output(request: Request, assets: list[ImageAsset], *, limit: int, offset: int) -> dict:
+    return {
+        "items": [to_output(request, asset, False) for asset in assets],
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+def _build_feishu_download_url(asset: ImageAsset) -> str:
+    base_url = image_host_config.feishu_api_base_url.rstrip("/")
+    return f"{base_url}/im/v1/images/{asset.feishu_image_key}"
+
+
+def _validate_size(content: bytes) -> None:
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="上传文件不能为空",
+        )
+    max_bytes = image_host_config.max_upload_mb * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"图片不能超过 {image_host_config.max_upload_mb}MB",
+        )
+
+
+def _detect_mime_type(content: bytes, declared_mime: str | None) -> str:
+    detected = None
+    for prefix, mime_type in MAGIC_MIME:
+        if content.startswith(prefix):
+            detected = mime_type
+            break
+
+    if detected is None and _looks_like_webp(content):
+        detected = "image/webp"
+    if detected is None and _looks_like_heic(content):
+        detected = "image/heic"
+
+    mime_type = detected or (declared_mime or "").split(";")[0].strip().lower()
+    if mime_type == "image/jpg":
+        mime_type = "image/jpeg"
+    if mime_type not in MIME_TO_EXTENSION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="仅支持 JPG、PNG、WEBP、GIF、BMP、ICO、TIFF、HEIC 图片",
+        )
+    return mime_type
+
+
+def _looks_like_webp(content: bytes) -> bool:
+    return len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP"
+
+
+def _looks_like_heic(content: bytes) -> bool:
+    brands = (b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1")
+    return len(content) >= 12 and b"ftyp" in content[:MAX_HEIC_BRAND_SCAN_BYTES] and any(
+        brand in content[:MAX_HEIC_BRAND_SCAN_BYTES] for brand in brands
+    )
+
+
+def _parse_public_filename(filename: str) -> tuple[str, str]:
+    if "." not in filename:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="图片不存在")
+    asset_id, extension = filename.rsplit(".", 1)
+    if len(asset_id) != 32 or not all(char in "0123456789abcdef" for char in asset_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="图片不存在")
+    extension = extension.lower()
+    if extension not in set(MIME_TO_EXTENSION.values()):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="图片不存在")
+    return asset_id, extension
+
+
+def _build_cache_path(asset_id: str, extension: str) -> Path:
+    return Path(asset_id[:2]) / f"{asset_id}.{extension}"
+
+
+def _cache_root() -> Path:
+    root = image_host_config.cache_dir
+    if not root.is_absolute():
+        root = Path(global_config.project_root) / root
+    return root
+
+
+def _write_cache_file(relative_path: Path, content: bytes) -> None:
+    cache_file = _cache_root() / relative_path
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_bytes(content)
+
+
+def _ensure_cache_file(asset: ImageAsset, content: bytes) -> None:
+    cache_file = _cache_root() / asset.cache_path
+    if not cache_file.exists():
+        _write_cache_file(Path(asset.cache_path), content)

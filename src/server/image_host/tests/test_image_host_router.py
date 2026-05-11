@@ -1,0 +1,186 @@
+# -*- coding: utf-8 -*-
+"""图床路由测试。"""
+
+from __future__ import annotations
+
+from http import HTTPStatus
+
+import pytest
+
+from src.server.image_host.config import image_host_config
+
+PNG_BYTES = (
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR"
+    b"\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde"
+    b"\x00\x00\x00\x0cIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfeA\xe2&\xb5"
+    b"\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+class FakeImageStorageBackend:
+    def __init__(self) -> None:
+        self.upload_count = 0
+        self.objects: dict[str, bytes] = {}
+
+    async def put_image(
+        self, *, content: bytes, filename: str, mime_type: str
+    ) -> str:
+        self.upload_count += 1
+        key = f"fake-image-key-{self.upload_count}"
+        self.objects[key] = content
+        return key
+
+    async def get_image(self, image_key: str) -> bytes:
+        return self.objects[image_key]
+
+
+@pytest.fixture
+def fake_storage(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    storage = FakeImageStorageBackend()
+    monkeypatch.setattr(
+        "src.server.image_host.service.get_storage_backend",
+        lambda: storage,
+    )
+    monkeypatch.setattr(image_host_config, "cache_dir", tmp_path / "image_cache")
+    return storage
+
+
+def _login_admin(test_client):
+    resp = test_client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "admin123"},
+    )
+    assert resp.status_code == HTTPStatus.OK, resp.text
+    access_token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {access_token}"}
+
+
+def test_upload_image_and_get_public_url(
+    test_client,
+    init_test_database,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+    data = upload_resp.json()
+    assert data["filename"].endswith(".png")
+    assert data["url"].endswith(f"/i/{data['filename']}")
+    assert data["feishu_image_key"] == "fake-image-key-1"
+    assert data["feishu_download_url"].endswith("/im/v1/images/fake-image-key-1")
+    assert data["mime_type"] == "image/png"
+    assert data["size_bytes"] == len(PNG_BYTES)
+    assert data["reused_existing"] is False
+    assert fake_storage.upload_count == 1
+
+    image_resp = test_client.get(f"/i/{data['filename']}")
+
+    assert image_resp.status_code == HTTPStatus.OK, image_resp.text
+    assert image_resp.headers["content-type"].startswith("image/png")
+    assert image_resp.content == PNG_BYTES
+    assert image_resp.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
+def test_upload_duplicate_reuses_existing_asset(
+    test_client,
+    init_test_database,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+
+    first_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("first.png", PNG_BYTES, "image/png")},
+    )
+    second_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("second.png", PNG_BYTES, "image/png")},
+    )
+
+    assert first_resp.status_code == HTTPStatus.CREATED, first_resp.text
+    assert second_resp.status_code == HTTPStatus.CREATED, second_resp.text
+    assert second_resp.json()["id"] == first_resp.json()["id"]
+    assert second_resp.json()["reused_existing"] is True
+    assert fake_storage.upload_count == 1
+
+
+def test_list_images_returns_database_assets(
+    test_client,
+    init_test_database,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+    uploaded = upload_resp.json()
+
+    list_resp = test_client.get("/api/images", headers=headers)
+
+    assert list_resp.status_code == HTTPStatus.OK, list_resp.text
+    data = list_resp.json()
+    assert data["limit"] == 50
+    assert data["offset"] == 0
+    assert len(data["items"]) == 1
+    assert data["items"][0]["id"] == uploaded["id"]
+    assert data["items"][0]["url"].endswith(f"/i/{uploaded['filename']}")
+    assert data["items"][0]["feishu_image_key"] == "fake-image-key-1"
+    assert data["items"][0]["feishu_download_url"].endswith(
+        "/im/v1/images/fake-image-key-1"
+    )
+
+
+def test_public_url_refills_cache_from_feishu_backend(
+    test_client,
+    init_test_database,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+    filename = upload_resp.json()["filename"]
+
+    cache_files = list(image_host_config.cache_dir.rglob("*.png"))
+    assert len(cache_files) == 1
+    cache_files[0].unlink()
+
+    image_resp = test_client.get(f"/i/{filename}")
+
+    assert image_resp.status_code == HTTPStatus.OK, image_resp.text
+    assert image_resp.content == PNG_BYTES
+    assert cache_files[0].exists()
+
+
+def test_upload_rejects_non_image(
+    test_client,
+    init_test_database,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+
+    resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("note.txt", b"hello", "text/plain")},
+    )
+
+    assert resp.status_code == HTTPStatus.BAD_REQUEST
+    assert fake_storage.upload_count == 0

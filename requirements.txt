@@ -76,6 +76,8 @@ pytest==8.3.3
     #   pytest-asyncio
 pytest-asyncio==0.24.0
     # via -r requirements.in
+python-multipart==0.0.28
+    # via -r requirements.in
 python-dotenv==1.0.1
     # via
     #   -r requirements.in

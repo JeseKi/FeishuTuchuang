@@ -93,6 +93,7 @@ def import_all_models() -> None:
         from src.server.oauth import models as _4  # noqa: F401
         from src.server.oauth_provider import models as _5  # noqa: F401
         from src.server.providers import models as _6  # noqa: F401
+        from src.server.image_host import models as _7  # noqa: F401
     except Exception as e:
         logger.warning(f"导入模型时出现警告：{e}")
 

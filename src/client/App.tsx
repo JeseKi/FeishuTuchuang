@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-d
 import MainLayout from './components/layout/MainLayout'
 import DashboardPage from './pages/dashboard/DashboardPage'
 import ExamplePage from './pages/dashboard/ExamplePage'
+import ImageHostPage from './pages/dashboard/ImageHostPage'
 import ProfilePage from './pages/profile/ProfilePage'
 import SecurityPage from './pages/profile/SecurityPage'
 import DevicesPage from './pages/profile/DevicesPage'
@@ -54,6 +55,7 @@ export default function App() {
             >
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/example" element={<ExamplePage />} />
+              <Route path="/images" element={<ImageHostPage />} />
               <Route path="/profile" element={<ProfilePage />} />
               <Route path="/profile/security" element={<SecurityPage />} />
               <Route path="/profile/devices" element={<DevicesPage />} />
