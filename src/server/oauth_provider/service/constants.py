@@ -1,0 +1,10 @@
+# -*- coding: utf-8 -*-
+"""OAuth Provider service constants."""
+
+AUTHORIZATION_CODE_TTL_MINUTES = 5
+DEVICE_CODE_TTL_MINUTES = 15
+DEVICE_CODE_INTERVAL_SECONDS = 5
+ACCESS_TOKEN_TTL_MINUTES = 15
+REFRESH_TOKEN_TTL_DAYS = 30
+TOKEN_TYPE_EXTERNAL_ACCESS = "oauth_provider_access"
+TOKEN_TYPE_EXTERNAL_REFRESH = "oauth_provider_refresh"
