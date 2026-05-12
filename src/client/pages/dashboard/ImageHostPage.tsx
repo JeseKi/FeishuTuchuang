@@ -24,6 +24,7 @@ import {
   FileOutlined,
   LinkOutlined,
   ReloadOutlined,
+  SnippetsOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
 import {
@@ -52,6 +53,32 @@ function formatDateTime(value?: string): string {
     return '-'
   }
   return new Date(value).toLocaleString()
+}
+
+function getClipboardImageExtension(mimeType: string): string {
+  const subtype = mimeType.split('/')[1]?.split(';')[0]?.split('+')[0]
+  if (!subtype) {
+    return 'png'
+  }
+  return subtype === 'jpeg' ? 'jpg' : subtype
+}
+
+function createClipboardImageFile(blob: Blob, mimeType: string): File {
+  const type = mimeType || blob.type || 'image/png'
+  return new File([blob], `clipboard-${Date.now()}.${getClipboardImageExtension(type)}`, {
+    type,
+  })
+}
+
+function ensureNamedClipboardImageFile(file: File): File {
+  if (file.name) {
+    return file
+  }
+  const type = file.type || 'image/png'
+  return new File([file], `clipboard-${Date.now()}.${getClipboardImageExtension(type)}`, {
+    type,
+    lastModified: file.lastModified,
+  })
 }
 
 export default function ImageHostPage() {
@@ -116,6 +143,59 @@ export default function ImageHostPage() {
       setUploading(false)
     }
   }, [loadAssets, messageApi])
+
+  const uploadClipboardImage = useCallback(async (file: File | null) => {
+    if (uploading) {
+      void messageApi.warning('正在上传，请稍后再试')
+      return
+    }
+    if (!file) {
+      void messageApi.warning('剪贴板中没有可上传的图片')
+      return
+    }
+    await handleUpload(ensureNamedClipboardImageFile(file))
+  }, [handleUpload, messageApi, uploading])
+
+  const handleClipboardUpload = useCallback(async () => {
+    if (!navigator.clipboard?.read) {
+      void messageApi.warning('当前浏览器不支持主动读取剪贴板，请直接粘贴图片')
+      return
+    }
+
+    try {
+      const items = await navigator.clipboard.read()
+      for (const item of items) {
+        const imageType = item.types.find((type) => type.startsWith('image/'))
+        if (!imageType) {
+          continue
+        }
+        const blob = await item.getType(imageType)
+        await uploadClipboardImage(createClipboardImageFile(blob, imageType))
+        return
+      }
+      void messageApi.warning('剪贴板中没有可上传的图片')
+    } catch {
+      void messageApi.error('无法读取剪贴板，请允许浏览器访问剪贴板')
+    }
+  }, [messageApi, uploadClipboardImage])
+
+  useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      const imageFile = Array.from(event.clipboardData?.items ?? [])
+        .find((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        ?.getAsFile()
+
+      if (!imageFile) {
+        return
+      }
+
+      event.preventDefault()
+      void uploadClipboardImage(imageFile)
+    }
+
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [uploadClipboardImage])
 
   const handleDelete = async (target: ImageAsset) => {
     setDeletingId(target.id)
@@ -191,6 +271,13 @@ export default function ImageHostPage() {
           </Button>
           <Button icon={<ReloadOutlined />} loading={loadingList} onClick={() => loadAssets(page)}>
             刷新
+          </Button>
+          <Button
+            icon={<SnippetsOutlined />}
+            loading={uploading}
+            onClick={() => void handleClipboardUpload()}
+          >
+            剪贴板上传
           </Button>
           <Upload {...uploadProps}>
             <Button type="primary" icon={<UploadOutlined />} loading={uploading}>
