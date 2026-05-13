@@ -16,6 +16,8 @@ interface AssetDetailsPanelProps {
 
 export function AssetDetailsPanel({ asset, copyText, copyUrl }: AssetDetailsPanelProps) {
   const { token } = theme.useToken()
+  const publicUrl = asset?.url ?? ''
+  const markdownImageLink = publicUrl ? `![](${publicUrl})` : ''
 
   return (
     <Flex
@@ -35,7 +37,7 @@ export function AssetDetailsPanel({ asset, copyText, copyUrl }: AssetDetailsPane
       </Typography.Title>
       <Typography.Text type="secondary">公开链接</Typography.Text>
       <Input
-        value={asset?.url ?? ''}
+        value={publicUrl}
         readOnly
         prefix={<LinkOutlined />}
         suffix={
@@ -45,6 +47,21 @@ export function AssetDetailsPanel({ asset, copyText, copyUrl }: AssetDetailsPane
             icon={<CopyOutlined />}
             disabled={!asset}
             onClick={() => void copyUrl()}
+          />
+        }
+      />
+      <Typography.Text type="secondary">Markdown 链接</Typography.Text>
+      <Input
+        value={markdownImageLink}
+        readOnly
+        prefix={<LinkOutlined />}
+        suffix={
+          <Button
+            type="text"
+            size="small"
+            icon={<CopyOutlined />}
+            disabled={!asset}
+            onClick={() => void copyText(markdownImageLink, 'Markdown 链接已复制')}
           />
         }
       />
