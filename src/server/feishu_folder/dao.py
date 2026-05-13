@@ -43,6 +43,13 @@ class FeishuFolderDAO(BaseDAO):
             .first()
         )
 
+    def get_by_name(self, name: str) -> FeishuFolder | None:
+        return (
+            self.db_session.query(FeishuFolder)
+            .filter(FeishuFolder.name == name)
+            .first()
+        )
+
     def get_active(self) -> FeishuFolder | None:
         return (
             self.db_session.query(FeishuFolder)
@@ -51,12 +58,22 @@ class FeishuFolderDAO(BaseDAO):
             .first()
         )
 
-    def list(self) -> list[FeishuFolder]:
+    def list_all(self) -> list[FeishuFolder]:
         return (
             self.db_session.query(FeishuFolder)
             .order_by(FeishuFolder.is_active.desc(), FeishuFolder.created_at.desc())
             .all()
         )
+
+    def list_names(self) -> list[str]:
+        return [
+            row[0]
+            for row in (
+                self.db_session.query(FeishuFolder.name)
+                .order_by(FeishuFolder.is_active.desc(), FeishuFolder.name.asc())
+                .all()
+            )
+        ]
 
     def update(
         self,

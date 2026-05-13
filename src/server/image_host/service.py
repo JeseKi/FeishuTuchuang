@@ -63,6 +63,7 @@ async def upload_image(
     *,
     upload: UploadFile,
     current_user: User,
+    folder_token: str | None = None,
 ) -> tuple[ImageAsset, bool]:
     content = await upload.read()
     _validate_size(content)
@@ -78,6 +79,7 @@ async def upload_image(
         if not existing.feishu_file_token:
             file_token = await _put_image_to_configured_folder(
                 db,
+                folder_token=folder_token,
                 content=content,
                 filename=f"{existing.id}.{extension}",
                 mime_type=mime_type,
@@ -100,6 +102,7 @@ async def upload_image(
     filename = f"{asset_id}.{extension}"
     feishu_file_token = await _put_image_to_configured_folder(
         db,
+        folder_token=folder_token,
         content=content,
         filename=filename,
         mime_type=mime_type,
@@ -163,12 +166,16 @@ async def count_images(db: Session) -> int:
 async def _put_image_to_configured_folder(
     db: Session,
     *,
+    folder_token: str | None,
     content: bytes,
     filename: str,
     mime_type: str,
 ) -> str:
-    folder_token = await run_in_thread(lambda: get_active_folder_token(db))
-    with use_upload_folder_token(folder_token):
+    upload_folder_token = folder_token
+    if upload_folder_token is None:
+        upload_folder_token = await run_in_thread(lambda: get_active_folder_token(db))
+
+    with use_upload_folder_token(upload_folder_token):
         return await get_storage_backend().put_image(
             content=content,
             filename=filename,
