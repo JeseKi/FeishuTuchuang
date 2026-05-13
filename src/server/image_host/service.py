@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 from threading import Lock
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import HTTPException, Request, UploadFile, status
 from sqlalchemy.exc import IntegrityError
@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from src.server.auth.models import User
 from src.server.config import global_config
 from src.server.dao.dao_base import run_in_thread
-from src.server.feishu_folder.service import get_active_folder_token
+from src.server.feishu_folder.service import get_active_folder
 
 from .config import image_host_config
 from .dao import ImageAssetDAO
@@ -64,10 +64,14 @@ async def upload_image(
     upload: UploadFile,
     current_user: User,
     folder_token: str | None = None,
+    feishu_folder_id: int | None = None,
 ) -> tuple[ImageAsset, bool]:
     content = await upload.read()
     _validate_size(content)
     now = datetime.now(timezone.utc)
+    upload_folder_token, upload_folder_id = await run_in_thread(
+        lambda: _resolve_upload_folder(db, folder_token, feishu_folder_id)
+    )
 
     mime_type = _detect_mime_type(content, upload.content_type)
     extension = MIME_TO_EXTENSION[mime_type]
@@ -77,9 +81,8 @@ async def upload_image(
         _ensure_cache_file(existing, content)
         record_image_access(existing.id, now)
         if not existing.feishu_file_token:
-            file_token = await _put_image_to_configured_folder(
-                db,
-                folder_token=folder_token,
+            file_token = await _put_image(
+                folder_token=upload_folder_token,
                 content=content,
                 filename=f"{existing.id}.{extension}",
                 mime_type=mime_type,
@@ -92,6 +95,7 @@ async def upload_image(
                     mime_type=mime_type,
                     size_bytes=len(content),
                     cache_path=str(_build_cache_path(existing.id, extension)),
+                    feishu_folder_id=upload_folder_id,
                     last_accessed_at=now,
                 )
             )
@@ -100,9 +104,8 @@ async def upload_image(
     asset_id = sha256[:32]
     cache_path = _build_cache_path(asset_id, extension)
     filename = f"{asset_id}.{extension}"
-    feishu_file_token = await _put_image_to_configured_folder(
-        db,
-        folder_token=folder_token,
+    feishu_file_token = await _put_image(
+        folder_token=upload_folder_token,
         content=content,
         filename=filename,
         mime_type=mime_type,
@@ -119,6 +122,7 @@ async def upload_image(
                 mime_type=mime_type,
                 size_bytes=len(content),
                 feishu_file_token=feishu_file_token,
+                feishu_folder_id=upload_folder_id,
                 cache_path=str(cache_path),
                 uploaded_by_user_id=current_user.id,
                 last_accessed_at=now,
@@ -153,29 +157,58 @@ async def get_image_file(db: Session, *, filename: str) -> tuple[Path, str]:
     return _cache_root() / asset.cache_path, asset.mime_type
 
 
-async def list_images(db: Session, *, limit: int, offset: int) -> list[ImageAsset]:
+async def list_images(
+    db: Session,
+    *,
+    limit: int,
+    offset: int,
+    uploaded_from: date | None = None,
+    uploaded_to: date | None = None,
+    feishu_folder_id: int | None = None,
+) -> list[ImageAsset]:
+    created_at_from, created_at_before = _build_created_at_bounds(
+        uploaded_from,
+        uploaded_to,
+    )
     return await run_in_thread(
-        lambda: ImageAssetDAO(db).list_assets(limit=limit, offset=offset)
+        lambda: ImageAssetDAO(db).list_assets(
+            limit=limit,
+            offset=offset,
+            created_at_from=created_at_from,
+            created_at_before=created_at_before,
+            feishu_folder_id=feishu_folder_id,
+        )
     )
 
 
-async def count_images(db: Session) -> int:
-    return await run_in_thread(lambda: ImageAssetDAO(db).count_assets())
-
-
-async def _put_image_to_configured_folder(
+async def count_images(
     db: Session,
+    *,
+    uploaded_from: date | None = None,
+    uploaded_to: date | None = None,
+    feishu_folder_id: int | None = None,
+) -> int:
+    created_at_from, created_at_before = _build_created_at_bounds(
+        uploaded_from,
+        uploaded_to,
+    )
+    return await run_in_thread(
+        lambda: ImageAssetDAO(db).count_assets(
+            created_at_from=created_at_from,
+            created_at_before=created_at_before,
+            feishu_folder_id=feishu_folder_id,
+        )
+    )
+
+
+async def _put_image(
     *,
     folder_token: str | None,
     content: bytes,
     filename: str,
     mime_type: str,
 ) -> str:
-    upload_folder_token = folder_token
-    if upload_folder_token is None:
-        upload_folder_token = await run_in_thread(lambda: get_active_folder_token(db))
-
-    with use_upload_folder_token(upload_folder_token):
+    with use_upload_folder_token(folder_token):
         return await get_storage_backend().put_image(
             content=content,
             filename=filename,
@@ -267,6 +300,10 @@ def to_output(request: Request, asset: ImageAsset, reused_existing: bool) -> dic
         "url": build_public_url(request, asset),
         "feishu_file_token": asset.feishu_file_token,
         "feishu_download_url": _build_feishu_download_url(asset),
+        "feishu_folder_id": asset.feishu_folder_id,
+        "feishu_folder_name": (
+            asset.feishu_folder.name if asset.feishu_folder is not None else None
+        ),
         "original_filename": asset.original_filename,
         "mime_type": asset.mime_type,
         "size_bytes": asset.size_bytes,
@@ -296,6 +333,34 @@ def to_list_output(
 def _build_feishu_download_url(asset: ImageAsset) -> str:
     base_url = image_host_config.feishu_api_base_url.rstrip("/")
     return f"{base_url}/drive/v1/files/{asset.feishu_file_token}/download"
+
+
+def _resolve_upload_folder(
+    db: Session,
+    folder_token: str | None,
+    feishu_folder_id: int | None,
+) -> tuple[str | None, int | None]:
+    if folder_token is not None:
+        return folder_token, feishu_folder_id
+
+    folder = get_active_folder(db)
+    if folder is None:
+        return None, None
+    return folder.folder_token, folder.id
+
+
+def _build_created_at_bounds(
+    uploaded_from: date | None,
+    uploaded_to: date | None,
+) -> tuple[datetime | None, datetime | None]:
+    created_at_from = None
+    created_at_before = None
+    if uploaded_from is not None:
+        created_at_from = datetime.combine(uploaded_from, time.min, timezone.utc)
+    if uploaded_to is not None:
+        next_day = uploaded_to + timedelta(days=1)
+        created_at_before = datetime.combine(next_day, time.min, timezone.utc)
+    return created_at_from, created_at_before
 
 
 def _validate_size(content: bytes) -> None:

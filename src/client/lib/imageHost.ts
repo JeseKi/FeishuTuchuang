@@ -6,6 +6,8 @@ export interface ImageAsset {
   url: string
   feishu_file_token: string
   feishu_download_url: string
+  feishu_folder_id?: number | null
+  feishu_folder_name?: string | null
   original_filename: string
   mime_type: string
   size_bytes: number
@@ -20,6 +22,12 @@ export interface ImageAssetList {
   limit: number
   offset: number
   total: number
+}
+
+export interface ImageAssetFilters {
+  uploaded_from?: string
+  uploaded_to?: string
+  folder_id?: number
 }
 
 export interface FeishuOAuthAuthorize {
@@ -63,11 +71,16 @@ export async function createFeishuOAuthAuthorizeUrl(): Promise<FeishuOAuthAuthor
   return response.data
 }
 
-export async function listImageAssets(limit = 10, offset = 0): Promise<ImageAssetList> {
+export async function listImageAssets(
+  limit = 10,
+  offset = 0,
+  filters: ImageAssetFilters = {},
+): Promise<ImageAssetList> {
   const response = await api.get<ImageAssetList>('/images', {
     params: {
       limit,
       offset,
+      ...filters,
     },
   })
   return response.data

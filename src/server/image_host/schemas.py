@@ -15,6 +15,8 @@ class ImageAssetOut(BaseModel):
     url: str
     feishu_file_token: str
     feishu_download_url: str
+    feishu_folder_id: int | None = None
+    feishu_folder_name: str | None = None
     original_filename: str
     mime_type: str
     size_bytes: int

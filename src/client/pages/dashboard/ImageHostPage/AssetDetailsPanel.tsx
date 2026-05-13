@@ -88,6 +88,9 @@ export function AssetDetailsPanel({ asset, copyText, copyUrl }: AssetDetailsPane
         <Descriptions.Item label="大小">
           {asset ? formatBytes(asset.size_bytes) : '-'}
         </Descriptions.Item>
+        <Descriptions.Item label="文件夹">
+          {asset?.feishu_folder_name ?? '-'}
+        </Descriptions.Item>
         <Descriptions.Item label="状态">
           {asset ? (
             <Space>

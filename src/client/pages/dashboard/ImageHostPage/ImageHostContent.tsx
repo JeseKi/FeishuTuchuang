@@ -5,7 +5,9 @@ import type {
   FeishuFolderPayload,
   FeishuOAuthStatus,
   ImageAsset,
+  ImageAssetFilters,
 } from '../../../lib/imageHost'
+import { AssetFilters } from './AssetFilters'
 import { AssetDetailsPanel } from './AssetDetailsPanel'
 import { AssetHistoryList } from './AssetHistoryList'
 import { AssetPreviewPanel } from './AssetPreviewPanel'
@@ -26,6 +28,8 @@ interface ImageHostContentProps {
   folderForm: FormInstance<FeishuFolderPayload>
   folderModalOpen: boolean
   folders: FeishuFolder[]
+  filters: ImageAssetFilters
+  applyFilters: (filters: ImageAssetFilters) => Promise<void>
   handleClipboardUpload: () => void
   handleDelete: (target: ImageAsset) => Promise<void>
   loadAssets: (targetPage: number) => Promise<void>
@@ -67,6 +71,7 @@ export function ImageHostContent(props: ImageHostContentProps) {
         <AssetPreviewPanel {...props} />
       </Flex>
 
+      <AssetFilters {...props} />
       <AssetHistoryList {...props} />
       <FolderFormModal {...props} />
     </Flex>

@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from src.server.dao.dao_base import BaseDAO
 
@@ -29,6 +29,7 @@ class ImageAssetDAO(BaseDAO):
         mime_type: str,
         size_bytes: int,
         feishu_file_token: str,
+        feishu_folder_id: int | None,
         cache_path: str,
         uploaded_by_user_id: int | None,
         last_accessed_at: datetime,
@@ -41,6 +42,7 @@ class ImageAssetDAO(BaseDAO):
             mime_type=mime_type,
             size_bytes=size_bytes,
             feishu_file_token=feishu_file_token,
+            feishu_folder_id=feishu_folder_id,
             cache_path=cache_path,
             uploaded_by_user_id=uploaded_by_user_id,
             last_accessed_at=last_accessed_at,
@@ -77,6 +79,7 @@ class ImageAssetDAO(BaseDAO):
         mime_type: str,
         size_bytes: int,
         cache_path: str,
+        feishu_folder_id: int | None,
         last_accessed_at: datetime,
     ) -> ImageAsset:
         asset.feishu_file_token = feishu_file_token
@@ -84,28 +87,65 @@ class ImageAssetDAO(BaseDAO):
         asset.mime_type = mime_type
         asset.size_bytes = size_bytes
         asset.cache_path = cache_path
+        asset.feishu_folder_id = feishu_folder_id
         asset.last_accessed_at = last_accessed_at
         asset.updated_at = datetime.now(timezone.utc)
         self.db_session.commit()
         self.db_session.refresh(asset)
         return asset
 
-    def list_assets(self, *, limit: int, offset: int) -> list[ImageAsset]:
+    def list_assets(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        created_at_from: datetime | None = None,
+        created_at_before: datetime | None = None,
+        feishu_folder_id: int | None = None,
+    ) -> list[ImageAsset]:
         return (
-            self.db_session.query(ImageAsset)
-            .filter(ImageAsset.feishu_file_token.is_not(None))
+            self._filter_assets(
+                created_at_from=created_at_from,
+                created_at_before=created_at_before,
+                feishu_folder_id=feishu_folder_id,
+            )
+            .options(joinedload(ImageAsset.feishu_folder))
             .order_by(ImageAsset.created_at.desc(), ImageAsset.id.desc())
             .offset(offset)
             .limit(limit)
             .all()
         )
 
-    def count_assets(self) -> int:
-        return (
-            self.db_session.query(ImageAsset)
-            .filter(ImageAsset.feishu_file_token.is_not(None))
-            .count()
+    def count_assets(
+        self,
+        *,
+        created_at_from: datetime | None = None,
+        created_at_before: datetime | None = None,
+        feishu_folder_id: int | None = None,
+    ) -> int:
+        return self._filter_assets(
+            created_at_from=created_at_from,
+            created_at_before=created_at_before,
+            feishu_folder_id=feishu_folder_id,
+        ).count()
+
+    def _filter_assets(
+        self,
+        *,
+        created_at_from: datetime | None,
+        created_at_before: datetime | None,
+        feishu_folder_id: int | None,
+    ):
+        query = self.db_session.query(ImageAsset).filter(
+            ImageAsset.feishu_file_token.is_not(None)
         )
+        if created_at_from is not None:
+            query = query.filter(ImageAsset.created_at >= created_at_from)
+        if created_at_before is not None:
+            query = query.filter(ImageAsset.created_at < created_at_before)
+        if feishu_folder_id is not None:
+            query = query.filter(ImageAsset.feishu_folder_id == feishu_folder_id)
+        return query
 
     def update_last_accessed_at(self, access_times: dict[str, datetime]) -> int:
         updated_count = 0

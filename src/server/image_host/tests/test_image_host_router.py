@@ -161,6 +161,76 @@ def test_list_images_returns_database_assets(
     )
 
 
+def test_list_images_filters_by_uploaded_date_and_folder(
+    test_client,
+    init_test_database,
+    fake_storage,
+    test_db_session: Session,
+):
+    headers = _login_admin(test_client)
+    folder_a_resp = test_client.post(
+        "/api/feishu/folders",
+        headers=headers,
+        json={"name": "图床", "folder_token": "folder-token-1", "is_active": True},
+    )
+    assert folder_a_resp.status_code == HTTPStatus.CREATED, folder_a_resp.text
+    folder_a_id = folder_a_resp.json()["id"]
+
+    first_upload = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+    assert first_upload.status_code == HTTPStatus.CREATED, first_upload.text
+
+    folder_b_resp = test_client.post(
+        "/api/feishu/folders",
+        headers=headers,
+        json={"name": "归档", "folder_token": "folder-token-2", "is_active": True},
+    )
+    assert folder_b_resp.status_code == HTTPStatus.CREATED, folder_b_resp.text
+    folder_b_id = folder_b_resp.json()["id"]
+
+    second_upload = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("clip.mp4", MP4_BYTES, "video/mp4")},
+    )
+    assert second_upload.status_code == HTTPStatus.CREATED, second_upload.text
+
+    first_asset = test_db_session.query(ImageAsset).filter(
+        ImageAsset.id == first_upload.json()["id"]
+    ).one()
+    second_asset = test_db_session.query(ImageAsset).filter(
+        ImageAsset.id == second_upload.json()["id"]
+    ).one()
+    first_asset.created_at = datetime(2026, 5, 1, 8, tzinfo=timezone.utc)
+    second_asset.created_at = datetime(2026, 5, 2, 8, tzinfo=timezone.utc)
+    test_db_session.commit()
+
+    folder_resp = test_client.get(
+        f"/api/images?folder_id={folder_a_id}",
+        headers=headers,
+    )
+    assert folder_resp.status_code == HTTPStatus.OK, folder_resp.text
+    folder_data = folder_resp.json()
+    assert folder_data["total"] == 1
+    assert folder_data["items"][0]["id"] == first_upload.json()["id"]
+    assert folder_data["items"][0]["feishu_folder_id"] == folder_a_id
+    assert folder_data["items"][0]["feishu_folder_name"] == "图床"
+
+    date_resp = test_client.get(
+        f"/api/images?uploaded_from=2026-05-02&uploaded_to=2026-05-02&folder_id={folder_b_id}",
+        headers=headers,
+    )
+    assert date_resp.status_code == HTTPStatus.OK, date_resp.text
+    date_data = date_resp.json()
+    assert date_data["total"] == 1
+    assert date_data["items"][0]["id"] == second_upload.json()["id"]
+    assert date_data["items"][0]["feishu_folder_id"] == folder_b_id
+    assert date_data["items"][0]["feishu_folder_name"] == "归档"
+
+
 def test_public_url_refills_cache_from_feishu_backend(
     test_client,
     init_test_database,

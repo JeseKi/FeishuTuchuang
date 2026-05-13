@@ -1,4 +1,4 @@
-import { Button, Flex, Image, List, Popconfirm, Space, Spin, Typography, theme } from 'antd'
+import { Button, Flex, Image, List, Popconfirm, Space, Spin, Tag, Typography, theme } from 'antd'
 import {
   CopyOutlined,
   DeleteOutlined,
@@ -48,9 +48,6 @@ export function AssetHistoryList({
 
   return (
     <Flex vertical gap={12}>
-      <Typography.Title level={4} style={{ margin: 0 }}>
-        历史图片/视频
-      </Typography.Title>
       <Spin spinning={loadingList}>
         <List
           grid={{
@@ -136,6 +133,9 @@ export function AssetHistoryList({
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   {formatBytes(item.size_bytes)}
                 </Typography.Text>
+                <Flex style={{ minHeight: 22 }}>
+                  {item.feishu_folder_name && <Tag>{item.feishu_folder_name}</Tag>}
+                </Flex>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   {formatDateTime(item.last_accessed_at)}
                 </Typography.Text>

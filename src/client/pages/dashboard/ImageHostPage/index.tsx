@@ -14,6 +14,7 @@ import {
   type FeishuFolderPayload,
   type FeishuOAuthStatus,
   type ImageAsset,
+  type ImageAssetFilters,
 } from '../../../lib/imageHost'
 import { resolveApiErrorMessage } from '../../../lib/error'
 import { ImageHostContent } from './ImageHostContent'
@@ -30,6 +31,7 @@ export default function ImageHostPage() {
   const [total, setTotal] = useState(0)
   const [oauthStatus, setOauthStatus] = useState<FeishuOAuthStatus | null>(null)
   const [folders, setFolders] = useState<FeishuFolder[]>([])
+  const [filters, setFilters] = useState<ImageAssetFilters>({})
   const [loadingFolders, setLoadingFolders] = useState(false)
   const [folderModalOpen, setFolderModalOpen] = useState(false)
   const [editingFolder, setEditingFolder] = useState<FeishuFolder | null>(null)
@@ -41,20 +43,34 @@ export default function ImageHostPage() {
   const pageSize = 10
   const activeFolder = useMemo(() => folders.find((folder) => folder.is_active) ?? null, [folders])
 
-  const loadAssets = useCallback(async (targetPage: number) => {
+  const loadAssets = useCallback(async (
+    targetPage: number,
+    nextFilters: ImageAssetFilters = filters,
+  ) => {
     setLoadingList(true)
     setError(null)
     try {
-      const result = await listImageAssets(pageSize, (targetPage - 1) * pageSize)
+      const result = await listImageAssets(
+        pageSize,
+        (targetPage - 1) * pageSize,
+        nextFilters,
+      )
       setAssets(result.items)
       setTotal(result.total)
-      setAsset((current) => current ?? result.items[0] ?? null)
+      setAsset((current) => (
+        result.items.some((item) => item.id === current?.id)
+          ? current
+          : result.items[0] ?? null
+      ))
+      setPreviewAssetId((current) => (
+        result.items.some((item) => item.id === current) ? current : null
+      ))
     } catch (err) {
       setError(resolveApiErrorMessage(err))
     } finally {
       setLoadingList(false)
     }
-  }, [])
+  }, [filters])
 
   useEffect(() => { void loadAssets(1) }, [loadAssets])
 
@@ -96,6 +112,12 @@ export default function ImageHostPage() {
       setUploading(false)
     }
   }, [loadAssets, messageApi])
+
+  const applyFilters = async (nextFilters: ImageAssetFilters) => {
+    setFilters(nextFilters)
+    setPage(1)
+    await loadAssets(1, nextFilters)
+  }
 
   const uploadClipboardImage = useCallback(async (file: File | null) => {
     if (uploading) {
@@ -258,42 +280,13 @@ export default function ImageHostPage() {
   }
 
   return <ImageHostContent {...{
-    activeFolder,
-    asset,
-    assets,
-    connectingFeishu,
-    contextHolder,
-    deletingId,
-    editingFolder,
-    error,
-    folderForm,
-    folderModalOpen,
-    folders,
-    handleClipboardUpload,
-    handleDelete,
-    loadAssets,
-    loadFolders,
-    loadingFolders,
-    loadingList,
-    oauthStatus,
-    openCreateFolderModal,
-    openEditFolderModal,
-    page,
-    pageSize,
-    previewAssetId,
-    removeFolder,
-    savingFolder,
-    saveFolder,
-    setAsset,
-    setError,
-    setFolderModalOpen,
-    setPage,
-    setPreviewAssetId,
-    total,
-    uploadProps,
-    uploading,
-    connectFeishuDrive,
-    copyText,
-    copyUrl,
+    activeFolder, asset, assets, connectingFeishu, contextHolder,
+    deletingId, editingFolder, error, folderForm, folderModalOpen,
+    folders, filters, applyFilters, handleClipboardUpload, handleDelete,
+    loadAssets, loadFolders, loadingFolders, loadingList, oauthStatus,
+    openCreateFolderModal, openEditFolderModal, page, pageSize, previewAssetId,
+    removeFolder, savingFolder, saveFolder, setAsset, setError,
+    setFolderModalOpen, setPage, setPreviewAssetId, total, uploadProps,
+    uploading, connectFeishuDrive, copyText, copyUrl,
   }} />
 }

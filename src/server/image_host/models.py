@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.server.database import Base
 
@@ -23,6 +23,10 @@ class ImageAsset(Base):
     mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     feishu_file_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    feishu_folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("feishu_folders.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     cache_path: Mapped[str] = mapped_column(String(500), nullable=False)
     uploaded_by_user_id: Mapped[int | None] = mapped_column(Integer, default=None)
     last_accessed_at: Mapped[datetime] = mapped_column(
@@ -41,6 +45,7 @@ class ImageAsset(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+    feishu_folder = relationship("FeishuFolder")
 
 
 class ImageHostFeishuOAuthToken(Base):

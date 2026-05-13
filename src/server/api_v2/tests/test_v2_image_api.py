@@ -119,6 +119,7 @@ def test_upload_image_v2_uses_requested_folder(
 
     assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
     assert upload_resp.json()["filename"].endswith(".png")
+    assert upload_resp.json()["feishu_folder_name"] == "归档"
     assert fake_storage.upload_count == 1
     assert fake_storage.folder_tokens == ["folder-token-2"]
 

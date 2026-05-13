@@ -53,5 +53,6 @@ async def upload_image_v2(
         upload=image,
         current_user=current_user,
         folder_token=folder.folder_token,
+        feishu_folder_id=folder.id,
     )
     return image_service.to_output(request, asset, reused_existing)

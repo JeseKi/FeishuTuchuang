@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Path, Query, Request, Security, UploadFile, status
@@ -79,11 +80,26 @@ async def list_images(
     request: Request,
     limit: Annotated[int, Query(ge=1, le=100)] = 10,
     offset: Annotated[int, Query(ge=0)] = 0,
+    uploaded_from: Annotated[date | None, Query()] = None,
+    uploaded_to: Annotated[date | None, Query()] = None,
+    folder_id: Annotated[int | None, Query(ge=1)] = None,
     db: Session = Depends(get_db),
     _: User = Security(get_current_user, scopes=[SCOPE_PROFILE_READ]),
 ):
-    assets = await service.list_images(db, limit=limit, offset=offset)
-    total = await service.count_images(db)
+    assets = await service.list_images(
+        db,
+        limit=limit,
+        offset=offset,
+        uploaded_from=uploaded_from,
+        uploaded_to=uploaded_to,
+        feishu_folder_id=folder_id,
+    )
+    total = await service.count_images(
+        db,
+        uploaded_from=uploaded_from,
+        uploaded_to=uploaded_to,
+        feishu_folder_id=folder_id,
+    )
     return service.to_list_output(
         request,
         assets,
