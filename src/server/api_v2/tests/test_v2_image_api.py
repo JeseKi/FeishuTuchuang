@@ -9,6 +9,7 @@ import pytest
 
 from src.server.feishu_folder.models import FeishuFolder
 from src.server.image_host.config import image_host_config
+from src.server.image_host.models import ImageAsset
 from src.server.image_host.storage import _upload_folder_token
 
 PNG_BYTES = (
@@ -26,6 +27,7 @@ class FakeImageStorageBackend:
         self.upload_count = 0
         self.folder_tokens: list[str | None] = []
         self.objects: dict[str, bytes] = {}
+        self.deleted_keys: list[str] = []
 
     async def put_image(
         self, *, content: bytes, filename: str, mime_type: str
@@ -40,6 +42,7 @@ class FakeImageStorageBackend:
         return self.objects[file_token]
 
     async def delete_image(self, file_token: str) -> None:
+        self.deleted_keys.append(file_token)
         self.objects.pop(file_token, None)
 
 
@@ -141,3 +144,59 @@ def test_upload_image_v2_rejects_unknown_folder(
     assert upload_resp.status_code == HTTPStatus.NOT_FOUND
     assert upload_resp.json()["detail"] == "文件夹不存在"
     assert fake_storage.upload_count == 0
+
+
+def test_delete_image_v2_removes_remote_local_cache_and_database(
+    test_client,
+    init_test_database,
+    test_db_session,
+    fake_storage,
+):
+    api_key = _create_api_key(test_client)
+    _create_folder(test_db_session, name="图床", folder_token="folder-token-1")
+    upload_resp = test_client.post(
+        "/api/v2/images",
+        headers={"X-API-Key": api_key},
+        data={"folder_name": "图床"},
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+    asset_id = upload_resp.json()["id"]
+    asset = test_db_session.query(ImageAsset).filter(ImageAsset.id == asset_id).one()
+    cache_file = image_host_config.cache_dir / asset.cache_path
+    assert cache_file.exists()
+
+    delete_resp = test_client.delete(
+        f"/api/v2/images/{asset_id}",
+        headers={"X-API-Key": api_key},
+    )
+
+    assert delete_resp.status_code == HTTPStatus.NO_CONTENT, delete_resp.text
+    assert fake_storage.deleted_keys == ["fake-file-token-1"]
+    assert not cache_file.exists()
+    assert (
+        test_db_session.query(ImageAsset).filter(ImageAsset.id == asset_id).first()
+        is None
+    )
+
+
+def test_delete_image_v2_requires_api_key(
+    test_client,
+    init_test_database,
+    test_db_session,
+    fake_storage,
+):
+    api_key = _create_api_key(test_client)
+    _create_folder(test_db_session, name="图床", folder_token="folder-token-1")
+    upload_resp = test_client.post(
+        "/api/v2/images",
+        headers={"X-API-Key": api_key},
+        data={"folder_name": "图床"},
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+
+    delete_resp = test_client.delete(f"/api/v2/images/{upload_resp.json()['id']}")
+
+    assert delete_resp.status_code == HTTPStatus.UNAUTHORIZED
+    assert fake_storage.deleted_keys == []

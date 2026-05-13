@@ -3,7 +3,20 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, Request, Security, UploadFile, status
+from typing import Annotated
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Path,
+    Query,
+    Request,
+    Security,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from src.server.api_keys.dependencies import get_current_api_key_user
@@ -12,7 +25,7 @@ from src.server.auth.service.scopes import SCOPE_IMAGES_WRITE
 from src.server.database import get_db
 from src.server.feishu_folder import service as folder_service
 from src.server.image_host import service as image_service
-from src.server.image_host.schemas import ImageAssetOut
+from src.server.image_host.schemas import IMAGE_ASSET_ID_PATTERN, ImageAssetOut
 
 router = APIRouter(prefix="/api/v2", tags=["v2 API"])
 
@@ -56,3 +69,25 @@ async def upload_image_v2(
         feishu_folder_id=folder.id,
     )
     return image_service.to_output(request, asset, reused_existing)
+
+
+@router.delete(
+    "/images/{asset_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="v2 API 删除图床图片",
+    description=(
+        "使用 X-API-Key 或 Authorization: Bearer <api_key> 删除图床图片。"
+        "默认同时删除飞书 Drive 文件、本地缓存和数据库记录。"
+    ),
+)
+async def delete_image_v2(
+    asset_id: Annotated[str, Path(pattern=IMAGE_ASSET_ID_PATTERN)],
+    delete_remote: Annotated[bool, Query()] = True,
+    db: Session = Depends(get_db),
+    _: User = Security(get_current_api_key_user, scopes=[SCOPE_IMAGES_WRITE]),
+):
+    await image_service.delete_image_asset(
+        db,
+        asset_id=asset_id,
+        delete_remote=delete_remote,
+    )
