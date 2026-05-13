@@ -15,11 +15,12 @@ from sqlalchemy.orm import Session
 from src.server.auth.models import User
 from src.server.config import global_config
 from src.server.dao.dao_base import run_in_thread
+from src.server.feishu_folder.service import get_active_folder_token
 
 from .config import image_host_config
 from .dao import ImageAssetDAO
 from .models import ImageAsset
-from .storage import get_storage_backend
+from .storage import get_storage_backend, use_upload_folder_token
 
 MIME_TO_EXTENSION = {
     "image/jpeg": "jpg",
@@ -75,7 +76,8 @@ async def upload_image(
         _ensure_cache_file(existing, content)
         record_image_access(existing.id, now)
         if not existing.feishu_file_token:
-            file_token = await get_storage_backend().put_image(
+            file_token = await _put_image_to_configured_folder(
+                db,
                 content=content,
                 filename=f"{existing.id}.{extension}",
                 mime_type=mime_type,
@@ -96,7 +98,8 @@ async def upload_image(
     asset_id = sha256[:32]
     cache_path = _build_cache_path(asset_id, extension)
     filename = f"{asset_id}.{extension}"
-    feishu_file_token = await get_storage_backend().put_image(
+    feishu_file_token = await _put_image_to_configured_folder(
+        db,
         content=content,
         filename=filename,
         mime_type=mime_type,
@@ -155,6 +158,22 @@ async def list_images(db: Session, *, limit: int, offset: int) -> list[ImageAsse
 
 async def count_images(db: Session) -> int:
     return await run_in_thread(lambda: ImageAssetDAO(db).count_assets())
+
+
+async def _put_image_to_configured_folder(
+    db: Session,
+    *,
+    content: bytes,
+    filename: str,
+    mime_type: str,
+) -> str:
+    folder_token = await run_in_thread(lambda: get_active_folder_token(db))
+    with use_upload_folder_token(folder_token):
+        return await get_storage_backend().put_image(
+            content=content,
+            filename=filename,
+            mime_type=mime_type,
+        )
 
 
 async def delete_image_asset(

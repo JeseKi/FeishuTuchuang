@@ -95,6 +95,7 @@ def import_all_models() -> None:
         from src.server.providers import models as _6  # noqa: F401
         from src.server.image_host import models as _7  # noqa: F401
         from src.server.api_keys import models as _8  # noqa: F401
+        from src.server.feishu_folder import models as _9  # noqa: F401
     except Exception as e:
         logger.warning(f"导入模型时出现警告：{e}")
 

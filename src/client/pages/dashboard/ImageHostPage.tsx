@@ -4,12 +4,16 @@ import {
   Button,
   Descriptions,
   Flex,
+  Form,
   Image,
   Input,
   List,
+  Modal,
   Popconfirm,
   Space,
   Spin,
+  Switch,
+  Tag,
   Typography,
   Upload,
   message,
@@ -20,19 +24,29 @@ import {
   CheckCircleOutlined,
   CopyOutlined,
   DeleteOutlined,
+  EditOutlined,
   FileImageOutlined,
   FileOutlined,
+  FolderOutlined,
   LinkOutlined,
+  PlusOutlined,
   ReloadOutlined,
+  SettingOutlined,
   SnippetsOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
 import {
+  createFeishuFolder,
   createFeishuOAuthAuthorizeUrl,
+  deleteFeishuFolder,
   deleteImageAsset,
   getFeishuOAuthStatus,
+  listFeishuFolders,
   listImageAssets,
+  updateFeishuFolder,
   uploadImageAsset,
+  type FeishuFolder,
+  type FeishuFolderPayload,
   type ImageAsset,
   type FeishuOAuthStatus,
 } from '../../lib/imageHost'
@@ -91,11 +105,18 @@ export default function ImageHostPage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [oauthStatus, setOauthStatus] = useState<FeishuOAuthStatus | null>(null)
+  const [folders, setFolders] = useState<FeishuFolder[]>([])
+  const [loadingFolders, setLoadingFolders] = useState(false)
+  const [folderModalOpen, setFolderModalOpen] = useState(false)
+  const [editingFolder, setEditingFolder] = useState<FeishuFolder | null>(null)
+  const [savingFolder, setSavingFolder] = useState(false)
   const [connectingFeishu, setConnectingFeishu] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [messageApi, contextHolder] = message.useMessage()
+  const [folderForm] = Form.useForm<FeishuFolderPayload>()
   const pageSize = 10
   const isVideoAsset = (target?: ImageAsset | null) => target?.mime_type.startsWith('video/') ?? false
+  const activeFolder = useMemo(() => folders.find((folder) => folder.is_active) ?? null, [folders])
 
   const loadAssets = useCallback(async (targetPage: number) => {
     setLoadingList(true)
@@ -127,6 +148,21 @@ export default function ImageHostPage() {
   useEffect(() => {
     void loadOAuthStatus()
   }, [loadOAuthStatus])
+
+  const loadFolders = useCallback(async () => {
+    setLoadingFolders(true)
+    try {
+      setFolders(await listFeishuFolders())
+    } catch (err) {
+      setError(resolveApiErrorMessage(err))
+    } finally {
+      setLoadingFolders(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadFolders()
+  }, [loadFolders])
 
   const handleUpload = useCallback(async (file: File) => {
     setUploading(true)
@@ -229,6 +265,56 @@ export default function ImageHostPage() {
     }
   }
 
+  const openCreateFolderModal = () => {
+    setEditingFolder(null)
+    folderForm.setFieldsValue({ name: '', folder_token: '', is_active: true })
+    setFolderModalOpen(true)
+  }
+
+  const openEditFolderModal = (folder: FeishuFolder) => {
+    setEditingFolder(folder)
+    folderForm.setFieldsValue({
+      name: folder.name,
+      folder_token: folder.folder_token,
+      is_active: folder.is_active,
+    })
+    setFolderModalOpen(true)
+  }
+
+  const saveFolder = async () => {
+    setSavingFolder(true)
+    setError(null)
+    try {
+      const values = await folderForm.validateFields()
+      if (editingFolder) {
+        await updateFeishuFolder(editingFolder.id, values)
+      } else {
+        await createFeishuFolder(values)
+      }
+      setFolderModalOpen(false)
+      await loadFolders()
+      void messageApi.success('文件夹配置已保存')
+    } catch (err) {
+      if (err && typeof err === 'object' && 'errorFields' in err) {
+        return
+      }
+      setError(resolveApiErrorMessage(err))
+    } finally {
+      setSavingFolder(false)
+    }
+  }
+
+  const removeFolder = async (folder: FeishuFolder) => {
+    setError(null)
+    try {
+      await deleteFeishuFolder(folder.id)
+      await loadFolders()
+      void messageApi.success('文件夹配置已删除')
+    } catch (err) {
+      setError(resolveApiErrorMessage(err))
+    }
+  }
+
   const uploadProps = useMemo<UploadProps>(() => ({
     accept: 'image/*,video/*',
     maxCount: 1,
@@ -304,6 +390,83 @@ export default function ImageHostPage() {
           message="尚未连接飞书 Drive，上传、回源和删除需要先完成飞书用户授权。"
         />
       )}
+
+      {!activeFolder && (
+        <Alert
+          type="warning"
+          showIcon
+          message="尚未配置启用的飞书文件夹，上传会尝试使用飞书 Drive 根目录。"
+        />
+      )}
+
+      <Flex
+        vertical
+        gap={12}
+        style={{
+          padding: 16,
+          border: `1px solid ${token.colorBorder}`,
+          borderRadius: 8,
+          background: token.colorBgContainer,
+        }}
+      >
+        <Flex align="center" justify="space-between" wrap gap={12}>
+          <Space>
+            <FolderOutlined style={{ color: token.colorPrimary }} />
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              飞书文件夹
+            </Typography.Title>
+            {activeFolder && <Tag color="green">当前：{activeFolder.name}</Tag>}
+          </Space>
+          <Space>
+            <Button icon={<ReloadOutlined />} loading={loadingFolders} onClick={() => void loadFolders()}>
+              刷新
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateFolderModal}>
+              新增
+            </Button>
+          </Space>
+        </Flex>
+        <Spin spinning={loadingFolders}>
+          <List
+            dataSource={folders}
+            locale={{ emptyText: '暂无文件夹配置' }}
+            renderItem={(folder) => (
+              <List.Item
+                actions={[
+                  <Button
+                    key="edit"
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => openEditFolderModal(folder)}
+                  />,
+                  <Popconfirm
+                    key="delete"
+                    title="删除文件夹配置"
+                    description="不会删除飞书 Drive 中的文件夹或文件。"
+                    okText="删除"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => void removeFolder(folder)}
+                  >
+                    <Button danger size="small" icon={<DeleteOutlined />} />
+                  </Popconfirm>,
+                ]}
+              >
+                <List.Item.Meta
+                  avatar={<FolderOutlined style={{ color: token.colorPrimary, fontSize: 20 }} />}
+                  title={(
+                    <Space wrap>
+                      <Typography.Text strong>{folder.name}</Typography.Text>
+                      {folder.is_active && <Tag color="green">启用</Tag>}
+                    </Space>
+                  )}
+                  description={folder.folder_token}
+                />
+              </List.Item>
+            )}
+          />
+        </Spin>
+      </Flex>
 
       <Flex gap={16} align="stretch" wrap>
         <Flex
@@ -561,6 +724,36 @@ export default function ImageHostPage() {
           />
         </Spin>
       </Flex>
+
+      <Modal
+        title={editingFolder ? '编辑飞书文件夹' : '新增飞书文件夹'}
+        open={folderModalOpen}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={savingFolder}
+        onOk={() => void saveFolder()}
+        onCancel={() => setFolderModalOpen(false)}
+      >
+        <Form form={folderForm} layout="vertical" requiredMark={false}>
+          <Form.Item
+            name="name"
+            label="文件夹名称"
+            rules={[{ required: true, message: '请输入文件夹名称' }]}
+          >
+            <Input prefix={<FolderOutlined />} placeholder="图床" />
+          </Form.Item>
+          <Form.Item
+            name="folder_token"
+            label="Folder Token"
+            rules={[{ required: true, message: '请输入 folder token' }]}
+          >
+            <Input prefix={<SettingOutlined />} placeholder="飞书文件夹 token" />
+          </Form.Item>
+          <Form.Item name="is_active" label="设为上传文件夹" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Flex>
   )
 }

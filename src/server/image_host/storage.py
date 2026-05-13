@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
+from contextvars import ContextVar
 import zlib
+from collections.abc import Iterator
 from typing import Any, Protocol
 
 import httpx
@@ -17,6 +20,10 @@ _UPLOAD_TIMEOUT = httpx.Timeout(180.0, connect=15.0)
 _DEFAULT_TIMEOUT = httpx.Timeout(60.0, connect=15.0)
 _UPLOAD_RETRY_COUNT = 3
 _UPLOAD_RETRY_BACKOFF_SECONDS = 1.5
+_upload_folder_token: ContextVar[str | None] = ContextVar(
+    "feishu_upload_folder_token",
+    default=None,
+)
 
 
 class ImageStorageBackend(Protocol):
@@ -157,8 +164,9 @@ class FeishuDriveStorageBackend:
         self._json_or_error(response, "飞书 Drive 文件删除失败")
 
     async def _get_upload_folder_token(self) -> str:
-        if image_host_config.feishu_drive_folder_token:
-            return image_host_config.feishu_drive_folder_token
+        configured_folder_token = _upload_folder_token.get()
+        if configured_folder_token:
+            return configured_folder_token
         if self._root_folder_token:
             return self._root_folder_token
 
@@ -173,9 +181,8 @@ class FeishuDriveStorageBackend:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=(
-                    "未配置 IMAGE_HOST_FEISHU_DRIVE_FOLDER_TOKEN，且无法获取 "
-                    "Drive 根目录。请创建图床专用文件夹并将 folder token "
-                    "配置到该环境变量。"
+                    "未配置启用的飞书文件夹，且无法获取 Drive 根目录。"
+                    "请在飞书文件夹管理中配置 folder token。"
                 ),
             )
         self._root_folder_token = str(folder_token)
@@ -253,6 +260,15 @@ _storage_backend: ImageStorageBackend = FeishuDriveStorageBackend()
 
 def get_storage_backend() -> ImageStorageBackend:
     return _storage_backend
+
+
+@contextmanager
+def use_upload_folder_token(folder_token: str | None) -> Iterator[None]:
+    token = _upload_folder_token.set(folder_token)
+    try:
+        yield
+    finally:
+        _upload_folder_token.reset(token)
 
 
 def _adler32_checksum(content: bytes) -> int:

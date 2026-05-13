@@ -38,6 +38,21 @@ export interface FeishuOAuthStatus {
   connected_by_user_id?: number | null
 }
 
+export interface FeishuFolder {
+  id: number
+  name: string
+  folder_token: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface FeishuFolderPayload {
+  name: string
+  folder_token: string
+  is_active: boolean
+}
+
 export async function getFeishuOAuthStatus(): Promise<FeishuOAuthStatus> {
   const response = await api.get<FeishuOAuthStatus>('/images/feishu/oauth/status')
   return response.data
@@ -71,4 +86,26 @@ export async function uploadImageAsset(file: File): Promise<ImageAsset> {
 
 export async function deleteImageAsset(id: string): Promise<void> {
   await api.delete(`/images/${id}`)
+}
+
+export async function listFeishuFolders(): Promise<FeishuFolder[]> {
+  const response = await api.get<FeishuFolder[]>('/feishu/folders')
+  return response.data
+}
+
+export async function createFeishuFolder(payload: FeishuFolderPayload): Promise<FeishuFolder> {
+  const response = await api.post<FeishuFolder>('/feishu/folders', payload)
+  return response.data
+}
+
+export async function updateFeishuFolder(
+  id: number,
+  payload: FeishuFolderPayload,
+): Promise<FeishuFolder> {
+  const response = await api.put<FeishuFolder>(`/feishu/folders/${id}`, payload)
+  return response.data
+}
+
+export async function deleteFeishuFolder(id: number): Promise<void> {
+  await api.delete(`/feishu/folders/${id}`)
 }
