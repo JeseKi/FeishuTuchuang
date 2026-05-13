@@ -25,6 +25,7 @@ import {
   CopyOutlined,
   DeleteOutlined,
   EditOutlined,
+  EyeOutlined,
   FileImageOutlined,
   FileOutlined,
   FolderOutlined,
@@ -98,6 +99,7 @@ function ensureNamedClipboardImageFile(file: File): File {
 export default function ImageHostPage() {
   const { token } = theme.useToken()
   const [asset, setAsset] = useState<ImageAsset | null>(null)
+  const [previewAssetId, setPreviewAssetId] = useState<string | null>(null)
   const [assets, setAssets] = useState<ImageAsset[]>([])
   const [uploading, setUploading] = useState(false)
   const [loadingList, setLoadingList] = useState(false)
@@ -241,6 +243,9 @@ export default function ImageHostPage() {
       void messageApi.success('图片已删除')
       if (asset?.id === target.id) {
         setAsset(null)
+      }
+      if (previewAssetId === target.id) {
+        setPreviewAssetId(null)
       }
       await loadAssets(page)
     } catch (err) {
@@ -568,24 +573,36 @@ export default function ImageHostPage() {
         >
           {asset ? (
             isVideoAsset(asset) ? (
-              <video
-                src={asset.url}
-                controls
-                style={{
-                  width: '100%',
-                  maxHeight: 420,
-                  objectFit: 'contain',
-                }}
-              />
+              previewAssetId === asset.id ? (
+                <video
+                  src={asset.url}
+                  controls
+                  style={{
+                    width: '100%',
+                    maxHeight: 420,
+                    objectFit: 'contain',
+                  }}
+                />
+              ) : (
+                <Button icon={<EyeOutlined />} onClick={() => setPreviewAssetId(asset.id)}>
+                  预览
+                </Button>
+              )
             ) : (
-              <Image
-                src={asset.url}
-                alt={asset.original_filename}
-                style={{
-                  maxHeight: 420,
-                  objectFit: 'contain',
-                }}
-              />
+              previewAssetId === asset.id ? (
+                <Image
+                  src={asset.url}
+                  alt={asset.original_filename}
+                  style={{
+                    maxHeight: 420,
+                    objectFit: 'contain',
+                  }}
+                />
+              ) : (
+                <Button icon={<EyeOutlined />} onClick={() => setPreviewAssetId(asset.id)}>
+                  预览
+                </Button>
+              )
             )
           ) : (
             <FileImageOutlined style={{ fontSize: 64, color: token.colorTextTertiary }} />
@@ -645,9 +662,7 @@ export default function ImageHostPage() {
                       borderRadius: 6,
                     }}
                   >
-                    {isVideoAsset(item) ? (
-                      <FileOutlined style={{ fontSize: 46, color: token.colorTextTertiary }} />
-                    ) : (
+                    {previewAssetId === item.id && !isVideoAsset(item) ? (
                       <Image
                         src={item.url}
                         alt={item.original_filename}
@@ -657,6 +672,22 @@ export default function ImageHostPage() {
                           objectFit: 'contain',
                         }}
                       />
+                    ) : previewAssetId === item.id && isVideoAsset(item) ? (
+                      <video
+                        src={item.url}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        style={{
+                          width: '100%',
+                          maxHeight: 150,
+                          objectFit: 'contain',
+                        }}
+                      />
+                    ) : isVideoAsset(item) ? (
+                      <FileOutlined style={{ fontSize: 46, color: token.colorTextTertiary }} />
+                    ) : (
+                      <FileImageOutlined style={{ fontSize: 46, color: token.colorTextTertiary }} />
                     )}
                   </Flex>
                   <Typography.Text
@@ -674,12 +705,24 @@ export default function ImageHostPage() {
                   <Space.Compact block>
                     <Button
                       size="small"
+                      icon={<EyeOutlined />}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setAsset(item)
+                        setPreviewAssetId(item.id)
+                      }}
+                      style={{ width: '34%' }}
+                    >
+                      预览
+                    </Button>
+                    <Button
+                      size="small"
                       icon={<CopyOutlined />}
                       onClick={(event) => {
                         event.stopPropagation()
                         void copyUrl(item.url)
                       }}
-                      style={{ width: '50%' }}
+                      style={{ width: '33%' }}
                     >
                       公开
                     </Button>
@@ -690,7 +733,7 @@ export default function ImageHostPage() {
                         event.stopPropagation()
                         void copyText(item.feishu_file_token, '飞书 Token 已复制')
                       }}
-                      style={{ width: '50%' }}
+                      style={{ width: '33%' }}
                     >
                       飞书
                     </Button>
