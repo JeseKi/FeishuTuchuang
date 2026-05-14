@@ -1,4 +1,5 @@
-import { Button, DatePicker, Flex, Select, Space, Typography } from 'antd'
+import { useEffect, useState } from 'react'
+import { Button, DatePicker, Flex, Input, Select, Space, Typography } from 'antd'
 import { FilterOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
 import type { FeishuFolder, ImageAssetFilters } from '../../../lib/imageHost'
@@ -16,9 +17,26 @@ export function AssetFilters({
   loadingList,
   applyFilters,
 }: AssetFiltersProps) {
+  const [filename, setFilename] = useState(filters.filename ?? '')
+  const [feishuFileToken, setFeishuFileToken] = useState(filters.feishu_file_token ?? '')
   const dateValue: [Dayjs, Dayjs] | null = filters.uploaded_from && filters.uploaded_to
     ? [dayjs(filters.uploaded_from), dayjs(filters.uploaded_to)]
     : null
+
+  useEffect(() => {
+    setFilename(filters.filename ?? '')
+    setFeishuFileToken(filters.feishu_file_token ?? '')
+  }, [filters.filename, filters.feishu_file_token])
+
+  const applyTextFilters = (nextFilename = filename, nextFeishuFileToken = feishuFileToken) => {
+    const normalizedFilename = nextFilename.trim()
+    const normalizedFeishuFileToken = nextFeishuFileToken.trim()
+    void applyFilters({
+      ...filters,
+      filename: normalizedFilename || undefined,
+      feishu_file_token: normalizedFeishuFileToken || undefined,
+    })
+  }
 
   const updateDateRange = (value: [Dayjs | null, Dayjs | null] | null) => {
     void applyFilters({
@@ -36,6 +54,8 @@ export function AssetFilters({
   }
 
   const resetFilters = () => {
+    setFilename('')
+    setFeishuFileToken('')
     void applyFilters({})
   }
 
@@ -48,6 +68,34 @@ export function AssetFilters({
         </Typography.Title>
       </Space>
       <Space wrap>
+        <Input.Search
+          allowClear
+          placeholder="搜索文件名"
+          value={filename}
+          onChange={(event) => {
+            const value = event.target.value
+            setFilename(value)
+            if (!value && filters.filename) {
+              applyTextFilters('', feishuFileToken)
+            }
+          }}
+          onSearch={(value) => applyTextFilters(value, feishuFileToken)}
+          style={{ width: 200 }}
+        />
+        <Input.Search
+          allowClear
+          placeholder="飞书文件 Token"
+          value={feishuFileToken}
+          onChange={(event) => {
+            const value = event.target.value
+            setFeishuFileToken(value)
+            if (!value && filters.feishu_file_token) {
+              applyTextFilters(filename, '')
+            }
+          }}
+          onSearch={(value) => applyTextFilters(filename, value)}
+          style={{ width: 220 }}
+        />
         <DatePicker.RangePicker
           allowClear
           value={dateValue}

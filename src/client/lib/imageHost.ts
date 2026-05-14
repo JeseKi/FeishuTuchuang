@@ -28,6 +28,8 @@ export interface ImageAssetFilters {
   uploaded_from?: string
   uploaded_to?: string
   folder_id?: number
+  filename?: string
+  feishu_file_token?: string
 }
 
 export interface FeishuOAuthAuthorize {
