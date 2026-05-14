@@ -8,6 +8,7 @@ import {
   getFeishuOAuthStatus,
   listFeishuFolders,
   listImageAssets,
+  moveImageAsset,
   updateFeishuFolder,
   uploadImageAsset,
   type FeishuFolder,
@@ -27,6 +28,7 @@ export default function ImageHostPage() {
   const [uploading, setUploading] = useState(false)
   const [loadingList, setLoadingList] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [movingId, setMovingId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [oauthStatus, setOauthStatus] = useState<FeishuOAuthStatus | null>(null)
@@ -200,6 +202,24 @@ export default function ImageHostPage() {
     }
   }
 
+  const handleMove = async (target: ImageAsset, folderId: number) => {
+    setMovingId(target.id)
+    setError(null)
+    try {
+      const movedAsset = await moveImageAsset(target.id, folderId)
+      setAsset(movedAsset)
+      setAssets((current) => current.map((item) => (
+        item.id === movedAsset.id ? movedAsset : item
+      )))
+      await loadAssets(page)
+      void messageApi.success('图片已移动')
+    } catch (err) {
+      setError(resolveApiErrorMessage(err))
+    } finally {
+      setMovingId(null)
+    }
+  }
+
   const connectFeishuDrive = async () => {
     setConnectingFeishu(true)
     setError(null)
@@ -291,6 +311,7 @@ export default function ImageHostPage() {
     activeFolder, asset, assets, connectingFeishu, contextHolder,
     deletingId, editingFolder, error, folderForm, folderModalOpen,
     folders, filters, applyFilters, handleClipboardUpload, handleDelete,
+    handleMove, movingId,
     loadAssets, loadFolders, loadingFolders, loadingList, oauthStatus,
     openCreateFolderModal, openEditFolderModal, page, pageSize, previewAssetId,
     removeFolder, savingFolder, saveFolder, setAsset, setError,

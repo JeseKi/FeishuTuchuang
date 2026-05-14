@@ -32,6 +32,7 @@ from .schemas import (
     FeishuOAuthAuthorizeOut,
     FeishuOAuthStatusOut,
     ImageAssetListOut,
+    ImageAssetMoveIn,
     ImageAssetOut,
 )
 
@@ -162,6 +163,27 @@ async def delete_image(
     _: User = Security(get_current_user, scopes=[SCOPE_PROFILE_READ]),
 ):
     await service.delete_image_asset(db, asset_id=asset_id, delete_remote=delete_remote)
+
+
+@router.patch(
+    "/api/images/{asset_id}/folder",
+    response_model=ImageAssetOut,
+    summary="移动图床图片到其他飞书文件夹",
+    description="将飞书 Drive 文件移动到指定文件夹，并同步更新本地图片记录。",
+)
+async def move_image(
+    request: Request,
+    asset_id: Annotated[str, Path(pattern=IMAGE_ASSET_ID_PATTERN)],
+    payload: ImageAssetMoveIn,
+    db: Session = Depends(get_db),
+    _: User = Security(get_current_user, scopes=[SCOPE_PROFILE_READ]),
+):
+    asset = await service.move_image_asset(
+        db,
+        asset_id=asset_id,
+        feishu_folder_id=payload.folder_id,
+    )
+    return service.to_output(request, asset, False)
 
 
 @router.get(

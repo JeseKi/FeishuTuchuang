@@ -1,23 +1,46 @@
-import { Button, Descriptions, Flex, Input, Space, Typography, theme } from 'antd'
+import { useEffect, useState } from 'react'
+import { Button, Descriptions, Flex, Input, Select, Space, Typography, theme } from 'antd'
 import {
   CheckCircleOutlined,
   CopyOutlined,
   FileImageOutlined,
+  FolderOutlined,
   LinkOutlined,
 } from '@ant-design/icons'
-import type { ImageAsset } from '../../../lib/imageHost'
+import type { FeishuFolder, ImageAsset } from '../../../lib/imageHost'
 import { formatBytes, formatDateTime } from './utils'
 
 interface AssetDetailsPanelProps {
   asset: ImageAsset | null
+  folders: FeishuFolder[]
+  handleMove: (target: ImageAsset, folderId: number) => Promise<void>
+  loadingFolders: boolean
+  movingId: string | null
   copyText: (text: string, successMessage?: string) => Promise<void>
   copyUrl: (url?: string) => Promise<void>
 }
 
-export function AssetDetailsPanel({ asset, copyText, copyUrl }: AssetDetailsPanelProps) {
+export function AssetDetailsPanel({
+  asset,
+  folders,
+  handleMove,
+  loadingFolders,
+  movingId,
+  copyText,
+  copyUrl,
+}: AssetDetailsPanelProps) {
   const { token } = theme.useToken()
+  const [targetFolderId, setTargetFolderId] = useState<number | undefined>()
   const publicUrl = asset?.url ?? ''
   const markdownImageLink = publicUrl ? `![](${publicUrl})` : ''
+  const moving = asset ? movingId === asset.id : false
+  const canMove = Boolean(
+    asset && targetFolderId && targetFolderId !== asset.feishu_folder_id,
+  )
+
+  useEffect(() => {
+    setTargetFolderId(asset?.feishu_folder_id ?? undefined)
+  }, [asset?.id, asset?.feishu_folder_id])
 
   return (
     <Flex
@@ -95,6 +118,33 @@ export function AssetDetailsPanel({ asset, copyText, copyUrl }: AssetDetailsPane
           />
         }
       />
+      <Typography.Text type="secondary">移动到文件夹</Typography.Text>
+      <Space.Compact block>
+        <Select
+          value={targetFolderId}
+          disabled={!asset || moving}
+          loading={loadingFolders}
+          placeholder="选择目标文件夹"
+          onChange={(folderId?: number) => setTargetFolderId(folderId)}
+          style={{ width: '100%' }}
+          options={folders.map((folder) => ({
+            label: folder.is_active ? `${folder.name}（启用）` : folder.name,
+            value: folder.id,
+          }))}
+        />
+        <Button
+          icon={<FolderOutlined />}
+          loading={moving}
+          disabled={!canMove}
+          onClick={() => {
+            if (asset && targetFolderId) {
+              void handleMove(asset, targetFolderId)
+            }
+          }}
+        >
+          移动
+        </Button>
+      </Space.Compact>
       <Descriptions size="small" column={1} bordered>
         <Descriptions.Item label="文件名">
           {asset?.filename ?? '-'}

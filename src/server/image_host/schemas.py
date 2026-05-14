@@ -35,6 +35,10 @@ class ImageAssetListOut(BaseModel):
     total: int
 
 
+class ImageAssetMoveIn(BaseModel):
+    folder_id: int = Field(..., ge=1)
+
+
 class FeishuOAuthAuthorizeOut(BaseModel):
     authorize_url: str
     callback_url: str

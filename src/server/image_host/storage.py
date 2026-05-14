@@ -41,6 +41,10 @@ class ImageStorageBackend(Protocol):
         """删除后端资源。"""
         ...
 
+    async def move_image(self, file_token: str, *, folder_token: str) -> None:
+        """移动后端资源到指定文件夹。"""
+        ...
+
 
 class FeishuDriveStorageBackend:
     """基于飞书 Drive 文件 API 的冷存储后端。"""
@@ -162,6 +166,17 @@ class FeishuDriveStorageBackend:
             response = await client.delete(url, params=params, headers=headers)
 
         self._json_or_error(response, "飞书 Drive 文件删除失败")
+
+    async def move_image(self, file_token: str, *, folder_token: str) -> None:
+        token = await get_valid_user_access_token()
+        url = f"{self._base_url}/drive/v1/files/{file_token}/move"
+        headers = {"Authorization": f"Bearer {token}"}
+        body = {"type": "file", "folder_token": folder_token}
+
+        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT, trust_env=True) as client:
+            response = await client.post(url, json=body, headers=headers)
+
+        self._json_or_error(response, "飞书 Drive 文件移动失败")
 
     async def _get_upload_folder_token(self) -> str:
         configured_folder_token = _upload_folder_token.get()

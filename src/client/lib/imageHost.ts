@@ -109,6 +109,13 @@ export async function deleteImageAsset(id: string): Promise<void> {
   await api.delete(`/images/${id}`)
 }
 
+export async function moveImageAsset(id: string, folderId: number): Promise<ImageAsset> {
+  const response = await api.patch<ImageAsset>(`/images/${id}/folder`, {
+    folder_id: folderId,
+  })
+  return response.data
+}
+
 export async function listFeishuFolders(): Promise<FeishuFolder[]> {
   const response = await api.get<FeishuFolder[]>('/feishu/folders')
   return response.data

@@ -32,10 +32,12 @@ interface ImageHostContentProps {
   applyFilters: (filters: ImageAssetFilters) => Promise<void>
   handleClipboardUpload: () => void
   handleDelete: (target: ImageAsset) => Promise<void>
+  handleMove: (target: ImageAsset, folderId: number) => Promise<void>
   loadAssets: (targetPage: number) => Promise<void>
   loadFolders: () => Promise<void>
   loadingFolders: boolean
   loadingList: boolean
+  movingId: string | null
   oauthStatus: FeishuOAuthStatus | null
   openCreateFolderModal: () => void
   openEditFolderModal: (folder: FeishuFolder) => void

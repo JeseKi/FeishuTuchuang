@@ -250,6 +250,34 @@ async def delete_image_asset(
     await run_in_thread(lambda: ImageAssetDAO(db).delete(asset))
 
 
+async def move_image_asset(
+    db: Session,
+    *,
+    asset_id: str,
+    feishu_folder_id: int,
+) -> ImageAsset:
+    asset = await run_in_thread(lambda: ImageAssetDAO(db).get(asset_id))
+    if not asset:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="图片不存在")
+    if not asset.feishu_file_token:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="图片不存在")
+
+    folder = await run_in_thread(lambda: get_folder_by_id(db, feishu_folder_id))
+    if asset.feishu_folder_id == folder.id:
+        return asset
+
+    await get_storage_backend().move_image(
+        asset.feishu_file_token,
+        folder_token=folder.folder_token,
+    )
+    return await run_in_thread(
+        lambda: ImageAssetDAO(db).update_folder(
+            asset,
+            feishu_folder_id=folder.id,
+        )
+    )
+
+
 def record_image_access(
     asset_id: str,
     accessed_at: datetime | None = None,
@@ -359,10 +387,10 @@ def _resolve_upload_folder(
         folder = get_folder_by_id(db, feishu_folder_id)
         return folder.folder_token, folder.id
 
-    folder = get_active_folder(db)
-    if folder is None:
+    active_folder = get_active_folder(db)
+    if active_folder is None:
         return None, None
-    return folder.folder_token, folder.id
+    return active_folder.folder_token, active_folder.id
 
 
 def _build_created_at_bounds(

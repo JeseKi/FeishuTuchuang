@@ -34,6 +34,7 @@ class FakeImageStorageBackend:
         self.folder_tokens: list[str | None] = []
         self.objects: dict[str, bytes] = {}
         self.deleted_keys: list[str] = []
+        self.moved_keys: list[tuple[str, str]] = []
 
     async def put_image(
         self, *, content: bytes, filename: str, mime_type: str
@@ -50,6 +51,9 @@ class FakeImageStorageBackend:
     async def delete_image(self, file_token: str) -> None:
         self.deleted_keys.append(file_token)
         self.objects.pop(file_token, None)
+
+    async def move_image(self, file_token: str, *, folder_token: str) -> None:
+        self.moved_keys.append((file_token, folder_token))
 
 
 @pytest.fixture
@@ -433,6 +437,73 @@ def test_delete_image_removes_remote_local_cache_and_database(
     assert fake_storage.deleted_keys == ["fake-file-token-1"]
     assert not cache_file.exists()
     assert test_db_session.query(ImageAsset).filter(ImageAsset.id == asset_id).first() is None
+
+
+def test_move_image_updates_remote_and_database_folder(
+    test_client,
+    init_test_database,
+    fake_storage,
+    test_db_session: Session,
+):
+    headers = _login_admin(test_client)
+    source_folder_resp = test_client.post(
+        "/api/feishu/folders",
+        headers=headers,
+        json={"name": "图床", "folder_token": "folder-token-1", "is_active": True},
+    )
+    target_folder_resp = test_client.post(
+        "/api/feishu/folders",
+        headers=headers,
+        json={"name": "归档", "folder_token": "folder-token-2", "is_active": False},
+    )
+    assert source_folder_resp.status_code == HTTPStatus.CREATED, source_folder_resp.text
+    assert target_folder_resp.status_code == HTTPStatus.CREATED, target_folder_resp.text
+    target_folder = target_folder_resp.json()
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        data={"folder_id": str(source_folder_resp.json()["id"])},
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+    asset_id = upload_resp.json()["id"]
+
+    move_resp = test_client.patch(
+        f"/api/images/{asset_id}/folder",
+        headers=headers,
+        json={"folder_id": target_folder["id"]},
+    )
+
+    assert move_resp.status_code == HTTPStatus.OK, move_resp.text
+    assert move_resp.json()["feishu_folder_id"] == target_folder["id"]
+    assert move_resp.json()["feishu_folder_name"] == "归档"
+    assert fake_storage.moved_keys == [("fake-file-token-1", "folder-token-2")]
+    asset = test_db_session.query(ImageAsset).filter(ImageAsset.id == asset_id).one()
+    assert asset.feishu_folder_id == target_folder["id"]
+
+
+def test_move_image_rejects_unknown_folder(
+    test_client,
+    init_test_database,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+
+    move_resp = test_client.patch(
+        f"/api/images/{upload_resp.json()['id']}/folder",
+        headers=headers,
+        json={"folder_id": 999},
+    )
+
+    assert move_resp.status_code == HTTPStatus.NOT_FOUND, move_resp.text
+    assert move_resp.json()["detail"] == "文件夹不存在"
+    assert fake_storage.moved_keys == []
 
 
 def test_access_time_flushes_from_memory_to_database(

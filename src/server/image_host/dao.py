@@ -94,6 +94,13 @@ class ImageAssetDAO(BaseDAO):
         self.db_session.refresh(asset)
         return asset
 
+    def update_folder(self, asset: ImageAsset, *, feishu_folder_id: int) -> ImageAsset:
+        asset.feishu_folder_id = feishu_folder_id
+        asset.updated_at = datetime.now(timezone.utc)
+        self.db_session.commit()
+        self.db_session.refresh(asset)
+        return asset
+
     def list_assets(
         self,
         *,
