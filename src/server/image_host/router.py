@@ -83,6 +83,8 @@ async def list_images(
     uploaded_from: Annotated[date | None, Query()] = None,
     uploaded_to: Annotated[date | None, Query()] = None,
     folder_id: Annotated[int | None, Query(ge=1)] = None,
+    feishu_file_token: Annotated[str | None, Query(max_length=255)] = None,
+    filename: Annotated[str | None, Query(max_length=255)] = None,
     db: Session = Depends(get_db),
     _: User = Security(get_current_user, scopes=[SCOPE_PROFILE_READ]),
 ):
@@ -93,12 +95,16 @@ async def list_images(
         uploaded_from=uploaded_from,
         uploaded_to=uploaded_to,
         feishu_folder_id=folder_id,
+        feishu_file_token=feishu_file_token,
+        filename=filename,
     )
     total = await service.count_images(
         db,
         uploaded_from=uploaded_from,
         uploaded_to=uploaded_to,
         feishu_folder_id=folder_id,
+        feishu_file_token=feishu_file_token,
+        filename=filename,
     )
     return service.to_list_output(
         request,

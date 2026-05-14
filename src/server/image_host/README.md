@@ -2,6 +2,7 @@
 
 ## 公开接口
 - POST `/api/images`
+- GET `/api/images`
 - GET `/i/{filename}`
 
 ## 业务定位
@@ -36,6 +37,9 @@
 
 ## 用法示例
 ```bash
+curl "http://localhost:8000/api/images?filename=demo&feishu_file_token={file_token}" \
+  -H "Authorization: Bearer $TOKEN"
+
 curl -X POST http://localhost:8000/api/images \
   -H "Authorization: Bearer $TOKEN" \
   -F "image=@./demo.png"

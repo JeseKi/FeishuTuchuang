@@ -231,6 +231,60 @@ def test_list_images_filters_by_uploaded_date_and_folder(
     assert date_data["items"][0]["feishu_folder_name"] == "归档"
 
 
+def test_list_images_searches_by_feishu_file_token_and_filename(
+    test_client,
+    init_test_database,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+    first_upload = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+    second_upload = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("Clip.MP4", MP4_BYTES, "video/mp4")},
+    )
+    assert first_upload.status_code == HTTPStatus.CREATED, first_upload.text
+    assert second_upload.status_code == HTTPStatus.CREATED, second_upload.text
+    first_asset = first_upload.json()
+    second_asset = second_upload.json()
+
+    token_resp = test_client.get(
+        "/api/images",
+        headers=headers,
+        params={"feishu_file_token": second_asset["feishu_file_token"]},
+    )
+    assert token_resp.status_code == HTTPStatus.OK, token_resp.text
+    token_data = token_resp.json()
+    assert token_data["total"] == 1
+    assert token_data["items"][0]["id"] == second_asset["id"]
+
+    original_filename_resp = test_client.get(
+        "/api/images",
+        headers=headers,
+        params={"filename": "clip"},
+    )
+    assert (
+        original_filename_resp.status_code == HTTPStatus.OK
+    ), original_filename_resp.text
+    original_filename_data = original_filename_resp.json()
+    assert original_filename_data["total"] == 1
+    assert original_filename_data["items"][0]["id"] == second_asset["id"]
+
+    public_filename_resp = test_client.get(
+        "/api/images",
+        headers=headers,
+        params={"filename": first_asset["filename"]},
+    )
+    assert public_filename_resp.status_code == HTTPStatus.OK, public_filename_resp.text
+    public_filename_data = public_filename_resp.json()
+    assert public_filename_data["total"] == 1
+    assert public_filename_data["items"][0]["id"] == first_asset["id"]
+
+
 def test_public_url_refills_cache_from_feishu_backend(
     test_client,
     init_test_database,

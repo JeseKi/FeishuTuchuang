@@ -165,11 +165,15 @@ async def list_images(
     uploaded_from: date | None = None,
     uploaded_to: date | None = None,
     feishu_folder_id: int | None = None,
+    feishu_file_token: str | None = None,
+    filename: str | None = None,
 ) -> list[ImageAsset]:
     created_at_from, created_at_before = _build_created_at_bounds(
         uploaded_from,
         uploaded_to,
     )
+    normalized_feishu_file_token = _normalize_search_value(feishu_file_token)
+    normalized_filename = _normalize_search_value(filename)
     return await run_in_thread(
         lambda: ImageAssetDAO(db).list_assets(
             limit=limit,
@@ -177,6 +181,8 @@ async def list_images(
             created_at_from=created_at_from,
             created_at_before=created_at_before,
             feishu_folder_id=feishu_folder_id,
+            feishu_file_token=normalized_feishu_file_token,
+            filename=normalized_filename,
         )
     )
 
@@ -187,16 +193,22 @@ async def count_images(
     uploaded_from: date | None = None,
     uploaded_to: date | None = None,
     feishu_folder_id: int | None = None,
+    feishu_file_token: str | None = None,
+    filename: str | None = None,
 ) -> int:
     created_at_from, created_at_before = _build_created_at_bounds(
         uploaded_from,
         uploaded_to,
     )
+    normalized_feishu_file_token = _normalize_search_value(feishu_file_token)
+    normalized_filename = _normalize_search_value(filename)
     return await run_in_thread(
         lambda: ImageAssetDAO(db).count_assets(
             created_at_from=created_at_from,
             created_at_before=created_at_before,
             feishu_folder_id=feishu_folder_id,
+            feishu_file_token=normalized_feishu_file_token,
+            filename=normalized_filename,
         )
     )
 
@@ -361,6 +373,13 @@ def _build_created_at_bounds(
         next_day = uploaded_to + timedelta(days=1)
         created_at_before = datetime.combine(next_day, time.min, timezone.utc)
     return created_at_from, created_at_before
+
+
+def _normalize_search_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
 
 
 def _validate_size(content: bytes) -> None:

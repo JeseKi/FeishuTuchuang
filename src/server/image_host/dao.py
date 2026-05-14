@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from src.server.dao.dao_base import BaseDAO
@@ -102,12 +102,16 @@ class ImageAssetDAO(BaseDAO):
         created_at_from: datetime | None = None,
         created_at_before: datetime | None = None,
         feishu_folder_id: int | None = None,
+        feishu_file_token: str | None = None,
+        filename: str | None = None,
     ) -> list[ImageAsset]:
         return (
             self._filter_assets(
                 created_at_from=created_at_from,
                 created_at_before=created_at_before,
                 feishu_folder_id=feishu_folder_id,
+                feishu_file_token=feishu_file_token,
+                filename=filename,
             )
             .options(joinedload(ImageAsset.feishu_folder))
             .order_by(ImageAsset.created_at.desc(), ImageAsset.id.desc())
@@ -122,11 +126,15 @@ class ImageAssetDAO(BaseDAO):
         created_at_from: datetime | None = None,
         created_at_before: datetime | None = None,
         feishu_folder_id: int | None = None,
+        feishu_file_token: str | None = None,
+        filename: str | None = None,
     ) -> int:
         return self._filter_assets(
             created_at_from=created_at_from,
             created_at_before=created_at_before,
             feishu_folder_id=feishu_folder_id,
+            feishu_file_token=feishu_file_token,
+            filename=filename,
         ).count()
 
     def _filter_assets(
@@ -135,6 +143,8 @@ class ImageAssetDAO(BaseDAO):
         created_at_from: datetime | None,
         created_at_before: datetime | None,
         feishu_folder_id: int | None,
+        feishu_file_token: str | None,
+        filename: str | None,
     ):
         query = self.db_session.query(ImageAsset).filter(
             ImageAsset.feishu_file_token.is_not(None)
@@ -145,6 +155,19 @@ class ImageAssetDAO(BaseDAO):
             query = query.filter(ImageAsset.created_at < created_at_before)
         if feishu_folder_id is not None:
             query = query.filter(ImageAsset.feishu_folder_id == feishu_folder_id)
+        if feishu_file_token is not None:
+            query = query.filter(ImageAsset.feishu_file_token == feishu_file_token)
+        if filename is not None:
+            normalized_filename = filename.lower()
+            public_filename = ImageAsset.id + "." + ImageAsset.extension
+            query = query.filter(
+                or_(
+                    func.lower(ImageAsset.original_filename).contains(
+                        normalized_filename
+                    ),
+                    func.lower(public_filename).contains(normalized_filename),
+                )
+            )
         return query
 
     def update_last_accessed_at(self, access_times: dict[str, datetime]) -> int:
