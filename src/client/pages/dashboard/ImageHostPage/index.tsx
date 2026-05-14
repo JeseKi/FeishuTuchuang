@@ -31,6 +31,7 @@ export default function ImageHostPage() {
   const [total, setTotal] = useState(0)
   const [oauthStatus, setOauthStatus] = useState<FeishuOAuthStatus | null>(null)
   const [folders, setFolders] = useState<FeishuFolder[]>([])
+  const [uploadFolderId, setUploadFolderId] = useState<number | undefined>(undefined)
   const [filters, setFilters] = useState<ImageAssetFilters>({})
   const [loadingFolders, setLoadingFolders] = useState(false)
   const [folderModalOpen, setFolderModalOpen] = useState(false)
@@ -87,7 +88,14 @@ export default function ImageHostPage() {
   const loadFolders = useCallback(async () => {
     setLoadingFolders(true)
     try {
-      setFolders(await listFeishuFolders())
+      const nextFolders = await listFeishuFolders()
+      setFolders(nextFolders)
+      setUploadFolderId((current) => {
+        if (current !== undefined && nextFolders.some((folder) => folder.id === current)) {
+          return current
+        }
+        return nextFolders.find((folder) => folder.is_active)?.id ?? nextFolders[0]?.id
+      })
     } catch (err) {
       setError(resolveApiErrorMessage(err))
     } finally {
@@ -101,7 +109,7 @@ export default function ImageHostPage() {
     setUploading(true)
     setError(null)
     try {
-      const result = await uploadImageAsset(file)
+      const result = await uploadImageAsset(file, uploadFolderId)
       setAsset(result)
       setPage(1)
       await loadAssets(1)
@@ -111,7 +119,7 @@ export default function ImageHostPage() {
     } finally {
       setUploading(false)
     }
-  }, [loadAssets, messageApi])
+  }, [loadAssets, messageApi, uploadFolderId])
 
   const applyFilters = async (nextFilters: ImageAssetFilters) => {
     setFilters(nextFilters)
@@ -287,6 +295,6 @@ export default function ImageHostPage() {
     openCreateFolderModal, openEditFolderModal, page, pageSize, previewAssetId,
     removeFolder, savingFolder, saveFolder, setAsset, setError,
     setFolderModalOpen, setPage, setPreviewAssetId, total, uploadProps,
-    uploading, connectFeishuDrive, copyText, copyUrl,
+    uploadFolderId, setUploadFolderId, uploading, connectFeishuDrive, copyText, copyUrl,
   }} />
 }

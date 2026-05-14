@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from src.server.auth.models import User
 from src.server.config import global_config
 from src.server.dao.dao_base import run_in_thread
-from src.server.feishu_folder.service import get_active_folder
+from src.server.feishu_folder.service import get_active_folder, get_folder_by_id
 
 from .config import image_host_config
 from .dao import ImageAssetDAO
@@ -354,6 +354,10 @@ def _resolve_upload_folder(
 ) -> tuple[str | None, int | None]:
     if folder_token is not None:
         return folder_token, feishu_folder_id
+
+    if feishu_folder_id is not None:
+        folder = get_folder_by_id(db, feishu_folder_id)
+        return folder.folder_token, folder.id
 
     folder = get_active_folder(db)
     if folder is None:

@@ -24,6 +24,13 @@ def get_active_folder(db: Session) -> FeishuFolder | None:
     return FeishuFolderDAO(db).get_active()
 
 
+def get_folder_by_id(db: Session, folder_id: int) -> FeishuFolder:
+    folder = FeishuFolderDAO(db).get(folder_id)
+    if folder is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文件夹不存在")
+    return folder
+
+
 def get_folder_by_name(db: Session, folder_name: str) -> FeishuFolder:
     normalized_name = folder_name.strip()
     if not normalized_name:

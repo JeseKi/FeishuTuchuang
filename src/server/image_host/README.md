@@ -42,6 +42,7 @@ curl "http://localhost:8000/api/images?filename=demo&feishu_file_token={file_tok
 
 curl -X POST http://localhost:8000/api/images \
   -H "Authorization: Bearer $TOKEN" \
+  -F "folder_id=1" \
   -F "image=@./demo.png"
 
 curl http://localhost:8000/i/{filename}

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from src.server.image_host import service
 from src.server.image_host.config import image_host_config
 from src.server.image_host.models import ImageAsset
+from src.server.image_host.storage import _upload_folder_token
 
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n"
@@ -30,6 +31,7 @@ MP4_BYTES = (
 class FakeImageStorageBackend:
     def __init__(self) -> None:
         self.upload_count = 0
+        self.folder_tokens: list[str | None] = []
         self.objects: dict[str, bytes] = {}
         self.deleted_keys: list[str] = []
 
@@ -37,6 +39,7 @@ class FakeImageStorageBackend:
         self, *, content: bytes, filename: str, mime_type: str
     ) -> str:
         self.upload_count += 1
+        self.folder_tokens.append(_upload_folder_token.get())
         key = f"fake-file-token-{self.upload_count}"
         self.objects[key] = content
         return key
@@ -128,6 +131,58 @@ def test_upload_duplicate_reuses_existing_asset(
     assert second_resp.json()["id"] == first_resp.json()["id"]
     assert second_resp.json()["reused_existing"] is True
     assert fake_storage.upload_count == 1
+
+
+def test_upload_image_uses_requested_folder(
+    test_client,
+    init_test_database,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+    active_folder_resp = test_client.post(
+        "/api/feishu/folders",
+        headers=headers,
+        json={"name": "图床", "folder_token": "folder-token-1", "is_active": True},
+    )
+    target_folder_resp = test_client.post(
+        "/api/feishu/folders",
+        headers=headers,
+        json={"name": "归档", "folder_token": "folder-token-2", "is_active": False},
+    )
+    assert active_folder_resp.status_code == HTTPStatus.CREATED, active_folder_resp.text
+    assert target_folder_resp.status_code == HTTPStatus.CREATED, target_folder_resp.text
+
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        data={"folder_id": str(target_folder_resp.json()["id"])},
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+    data = upload_resp.json()
+    assert data["feishu_folder_id"] == target_folder_resp.json()["id"]
+    assert data["feishu_folder_name"] == "归档"
+    assert fake_storage.folder_tokens == ["folder-token-2"]
+
+
+def test_upload_image_rejects_unknown_folder(
+    test_client,
+    init_test_database,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        data={"folder_id": "999"},
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+
+    assert upload_resp.status_code == HTTPStatus.NOT_FOUND, upload_resp.text
+    assert upload_resp.json()["detail"] == "文件夹不存在"
+    assert fake_storage.upload_count == 0
 
 
 def test_list_images_returns_database_assets(

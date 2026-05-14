@@ -6,7 +6,18 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Path, Query, Request, Security, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    Path,
+    Query,
+    Request,
+    Security,
+    UploadFile,
+    status,
+)
 from fastapi.responses import HTMLResponse, FileResponse
 from sqlalchemy.orm import Session
 
@@ -124,6 +135,7 @@ async def list_images(
 )
 async def upload_image(
     request: Request,
+    folder_id: Annotated[int | None, Form(ge=1)] = None,
     image: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Security(get_current_user, scopes=[SCOPE_PROFILE_READ]),
@@ -132,6 +144,7 @@ async def upload_image(
         db,
         upload=image,
         current_user=current_user,
+        feishu_folder_id=folder_id,
     )
     return service.to_output(request, asset, reused_existing)
 

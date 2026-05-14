@@ -1,4 +1,4 @@
-import { Button, Flex, Space, Typography, Upload, theme, type UploadProps } from 'antd'
+import { Button, Flex, Select, Space, Typography, Upload, theme, type UploadProps } from 'antd'
 import {
   FileImageOutlined,
   LinkOutlined,
@@ -6,17 +6,21 @@ import {
   SnippetsOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
-import type { FeishuOAuthStatus } from '../../../lib/imageHost'
+import type { FeishuFolder, FeishuOAuthStatus } from '../../../lib/imageHost'
 
 interface HeaderActionsProps {
   connectingFeishu: boolean
   handleClipboardUpload: () => void
   loadAssets: (page: number) => Promise<void>
+  loadingFolders: boolean
   loadingList: boolean
+  folders: FeishuFolder[]
   oauthStatus: FeishuOAuthStatus | null
   page: number
+  uploadFolderId?: number
   uploadProps: UploadProps
   uploading: boolean
+  setUploadFolderId: (folderId?: number) => void
   connectFeishuDrive: () => Promise<void>
 }
 
@@ -24,11 +28,15 @@ export function HeaderActions({
   connectingFeishu,
   handleClipboardUpload,
   loadAssets,
+  loadingFolders,
   loadingList,
+  folders,
   oauthStatus,
   page,
+  uploadFolderId,
   uploadProps,
   uploading,
+  setUploadFolderId,
   connectFeishuDrive,
 }: HeaderActionsProps) {
   const { token } = theme.useToken()
@@ -52,6 +60,19 @@ export function HeaderActions({
         <Button icon={<ReloadOutlined />} loading={loadingList} onClick={() => void loadAssets(page)}>
           刷新
         </Button>
+        <Select
+          allowClear
+          disabled={uploading}
+          loading={loadingFolders}
+          placeholder="默认上传文件夹"
+          value={uploadFolderId}
+          onChange={(folderId?: number) => setUploadFolderId(folderId)}
+          style={{ minWidth: 180 }}
+          options={folders.map((folder) => ({
+            label: folder.is_active ? `${folder.name}（启用）` : folder.name,
+            value: folder.id,
+          }))}
+        />
         <Button
           icon={<SnippetsOutlined />}
           loading={uploading}

@@ -52,7 +52,9 @@ interface ImageHostContentProps {
   setPreviewAssetId: (assetId: string) => void
   total: number
   uploadProps: UploadProps
+  uploadFolderId?: number
   uploading: boolean
+  setUploadFolderId: (folderId?: number) => void
   connectFeishuDrive: () => Promise<void>
   copyText: (text: string, successMessage?: string) => Promise<void>
   copyUrl: (url?: string) => Promise<void>

@@ -86,9 +86,15 @@ export async function listImageAssets(
   return response.data
 }
 
-export async function uploadImageAsset(file: File): Promise<ImageAsset> {
+export async function uploadImageAsset(
+  file: File,
+  folderId?: number,
+): Promise<ImageAsset> {
   const formData = new FormData()
   formData.append('image', file)
+  if (folderId !== undefined) {
+    formData.append('folder_id', String(folderId))
+  }
   const response = await api.post<ImageAsset>('/images', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
