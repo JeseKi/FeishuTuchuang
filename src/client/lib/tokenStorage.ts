@@ -1,4 +1,5 @@
-const ACCESS_TOKEN_KEY = 'fullstack_template_access_token'
+const ACCESS_TOKEN_KEY = 'feishu_image_host_access_token'
+const LEGACY_ACCESS_TOKEN_KEY = 'fullstack_template_access_token'
 const LEGACY_REFRESH_TOKEN_KEY = 'fullstack_template_refresh_token'
 
 let cachedAccessToken: string | null | undefined
@@ -37,7 +38,7 @@ function safeWrite(key: string, value: string | null): void {
 
 export function getAccessToken(): string | null {
   if (cachedAccessToken === undefined) {
-    cachedAccessToken = safeRead(ACCESS_TOKEN_KEY)
+    cachedAccessToken = safeRead(ACCESS_TOKEN_KEY) ?? safeRead(LEGACY_ACCESS_TOKEN_KEY)
   }
   return cachedAccessToken ?? null
 }
@@ -45,6 +46,7 @@ export function getAccessToken(): string | null {
 export function setTokens(accessToken: string | null): void {
   cachedAccessToken = accessToken ?? null
   safeWrite(ACCESS_TOKEN_KEY, cachedAccessToken)
+  safeWrite(LEGACY_ACCESS_TOKEN_KEY, null)
   safeWrite(LEGACY_REFRESH_TOKEN_KEY, null)
 }
 

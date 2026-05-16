@@ -2,18 +2,18 @@
 
 ## 公开接口
 - `App`：应用入口，统一挂载路由、鉴权上下文，并在 Ant Design `ConfigProvider` 下提供现代化主题。
-- `AuthProvider` / `useAuth` / `RequireAuth`：维护登录态及用户资料，暴露登录、注册、资料更新、登出、改密等公开行为。
+- `AuthProvider` / `useAuth` / `RequireAuth`：维护登录态及用户资料，暴露登录、资料更新、登出、改密等公开行为。
 - `MainLayout`：受保护区域的骨架布局，内置品牌导航与用户下拉菜单。
-- `LoginPage` / `RegisterPage` / `ExamplePage`：分别对接后端认证、注册与示例模块的公开接口，并以 Antd 表单组件承载交互流程。
-- `lib/auth`、`lib/example`：封装与后端的 HTTP 调用，是所有页面访问后端的唯一入口。
+- `LoginPage` / `ImageHostPage`：分别对接后端认证和图床管理接口，并以 Antd 表单组件承载交互流程。
+- `lib/auth`、`lib/imageHost`：封装与后端的 HTTP 调用，是页面访问后端的主要入口。
 
 ## 业务逻辑
-该模块通过 `AuthProvider` 驱动鉴权逻辑和用户状态同步，将登录后的用户数据传递给 `MainLayout` 与各业务页面。登录注册场景借助 Antd `Form` 实现校验与反馈，Example 页面组合 `Card`、`Statistic`、`Result` 等组件呈现示例接口的调用能力。所有请求都统一依赖 `lib/api` 注入的 Axios 拦截器处理令牌刷新，使前端专注于业务交互与状态展示。
+该模块通过 `AuthProvider` 驱动鉴权逻辑和用户状态同步，将登录后的用户数据传递给 `MainLayout` 与各业务页面。登录、图片上传、文件夹管理和 API Key 管理借助 Antd 组件实现校验与反馈。所有请求都统一依赖 `lib/api` 注入的 Axios 拦截器处理令牌刷新，使前端专注于业务交互与状态展示。
 
 ## 数据流
 ```mermaid
 graph LR
-    A[用户操作] --> B[页面组件 (Login/Register/Example)]
+    A[用户操作] --> B[页面组件 (Login/ImageHost)]
     B --> C[Antd Form 校验]
     C --> D[lib 层 API 调用]
     D -->|Axios| E[后端服务]
@@ -28,19 +28,19 @@ graph LR
 // 受保护页面中调用后端并使用 Antd 消息
 import { App, Button } from 'antd'
 import { useAuth } from '../providers/AuthProvider'
-import { ping } from '../lib/example'
+import { listImageAssets } from '../lib/imageHost'
 
 export function WelcomeSection() {
   const { message } = App.useApp()
   const { user } = useAuth()
 
-  const handlePing = async () => {
-    const result = await ping()
-    message.success(result)
+  const handleLoad = async () => {
+    const result = await listImageAssets(10, 0)
+    message.success(`已加载 ${result.items.length} 张图片`)
   }
 
   return (
-    <Button type="primary" onClick={handlePing}>
+    <Button type="primary" onClick={handleLoad}>
       {`欢迎回来，${user?.username ?? '访客'}`}
     </Button>
   )

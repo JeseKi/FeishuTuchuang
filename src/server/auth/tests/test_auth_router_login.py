@@ -37,7 +37,7 @@ def test_register_and_login_flow(test_client, test_db_session: Session):
     assert service.deserialize_scopes(data["scope"]) == set(
         service.get_role_scopes(UserRole.USER)
     )
-    refresh_cookie = resp.cookies.get("fullstack_template_refresh_token")
+    refresh_cookie = resp.cookies.get("feishu_image_host_refresh_token")
     assert refresh_cookie is not None
     payload = jwt.decode(
         refresh_cookie,

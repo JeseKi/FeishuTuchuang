@@ -10,7 +10,7 @@ import {
   type ThemePreference,
 } from '../contexts/ThemeContext'
 
-const STORAGE_KEY = 'fullstack-template-theme'
+const STORAGE_KEY = 'feishu-image-host-theme'
 const DARK_MEDIA_QUERY = '(prefers-color-scheme: dark)'
 
 function resolveSystemTheme(): ResolvedTheme {

@@ -30,14 +30,14 @@ def test_refresh_requires_refresh_cookie(test_client):
         "/api/auth/login", json={"username": "carol", "password": "Password123"}
     )
     assert login_resp.status_code == 200, login_resp.text
-    assert "fullstack_template_refresh_token" in login_resp.cookies
+    assert "feishu_image_host_refresh_token" in login_resp.cookies
     assert "refresh_token" not in login_resp.json()
 
     access_token = login_resp.json()["access_token"]
-    refresh_cookie = login_resp.cookies.get("fullstack_template_refresh_token")
+    refresh_cookie = login_resp.cookies.get("feishu_image_host_refresh_token")
     assert refresh_cookie is not None
 
-    test_client.cookies.delete("fullstack_template_refresh_token")
+    test_client.cookies.delete("feishu_image_host_refresh_token")
 
     unauthorized = test_client.post(
         "/api/auth/refresh",
@@ -45,7 +45,7 @@ def test_refresh_requires_refresh_cookie(test_client):
     )
     assert unauthorized.status_code == 401
 
-    test_client.cookies.set("fullstack_template_refresh_token", refresh_cookie)
+    test_client.cookies.set("feishu_image_host_refresh_token", refresh_cookie)
 
     refreshed = test_client.post("/api/auth/refresh")
     assert refreshed.status_code == 200, refreshed.text
@@ -76,7 +76,7 @@ def test_logout_revokes_current_refresh_session(test_client, test_db_session: Se
     login_resp = test_client.post(
         "/api/auth/login", json={"username": "logout_user", "password": "Password123"}
     )
-    refresh_cookie = login_resp.cookies.get("fullstack_template_refresh_token")
+    refresh_cookie = login_resp.cookies.get("feishu_image_host_refresh_token")
     assert refresh_cookie is not None
     payload = jwt.decode(
         refresh_cookie,
@@ -120,7 +120,7 @@ def test_logout_all_revokes_all_devices_immediately(
     assert login_resp.status_code == 200, login_resp.text
 
     access_token = login_resp.json()["access_token"]
-    refresh_cookie = login_resp.cookies.get("fullstack_template_refresh_token")
+    refresh_cookie = login_resp.cookies.get("feishu_image_host_refresh_token")
     assert refresh_cookie is not None
     payload = jwt.decode(
         refresh_cookie,
@@ -177,7 +177,7 @@ def test_logout_all_revokes_admin_access_on_other_device(
     assert device_b_login.status_code == 200, device_b_login.text
     device_b_access_token = device_b_login.json()["access_token"]
     device_b_refresh_cookie = device_b_login.cookies.get(
-        "fullstack_template_refresh_token"
+        "feishu_image_host_refresh_token"
     )
     assert device_b_refresh_cookie is not None
 
@@ -199,7 +199,7 @@ def test_logout_all_revokes_admin_access_on_other_device(
     assert update_resp.status_code == 401, update_resp.text
 
     test_client.cookies.set(
-        "fullstack_template_refresh_token",
+        "feishu_image_host_refresh_token",
         device_b_refresh_cookie,
     )
     refresh_resp = test_client.post("/api/auth/refresh")

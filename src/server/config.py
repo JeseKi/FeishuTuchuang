@@ -55,6 +55,36 @@ class GlobalConfig(BaseSettings):
         description="用于会话/签名等场景（可选）",
     )
 
+    enable_example_module: bool = Field(
+        default=False,
+        title="是否启用示例模块",
+    )
+
+    enable_oauth_login: bool = Field(
+        default=False,
+        title="是否启用第三方 OAuth 登录",
+    )
+
+    enable_oauth_provider: bool = Field(
+        default=False,
+        title="是否启用内置 OAuth Provider",
+    )
+
+    enable_scope_management: bool = Field(
+        default=False,
+        title="是否启用 Scope 管理接口",
+    )
+
+    enable_dev_provider_runtime: bool = Field(
+        default=False,
+        title="是否启用开发 Provider Runtime 接口",
+    )
+
+    enable_external_provider_registry: bool = Field(
+        default=False,
+        title="是否同步外部 Provider 注册表",
+    )
+
     app_domain: str = Field(
         default="",
         title="应用域名",

@@ -112,7 +112,7 @@ def build_auth_email_html(
         '<div style="display:inline-block;padding:8px 14px;border-radius:999px;'
         "background:rgba(14,165,233,0.12);color:#0369a1;font-size:12px;"
         'font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">'
-        "Fullstack Template"
+        "Feishu Image Host"
         "</div>"
         "</td>"
         "</tr>"

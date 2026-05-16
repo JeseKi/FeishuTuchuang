@@ -31,6 +31,13 @@ from sqlalchemy.engine import Connection
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("ALLOWED_ORIGINS", '["http://localhost:3000"]')
 os.environ["TURNSTILE_ENABLED"] = "false"
+os.environ.setdefault("ENABLE_PUBLIC_REGISTRATION", "true")
+os.environ.setdefault("ENABLE_EXAMPLE_MODULE", "true")
+os.environ.setdefault("ENABLE_OAUTH_LOGIN", "true")
+os.environ.setdefault("ENABLE_OAUTH_PROVIDER", "true")
+os.environ.setdefault("ENABLE_SCOPE_MANAGEMENT", "true")
+os.environ.setdefault("ENABLE_DEV_PROVIDER_RUNTIME", "true")
+os.environ.setdefault("ENABLE_EXTERNAL_PROVIDER_REGISTRY", "true")
 os.environ.setdefault(
     "EXTERNAL_PROVIDER_MOCK_LIST",
     '["github_oauth", "google_oauth", "turnstile", "mail", "example_external_api"]',

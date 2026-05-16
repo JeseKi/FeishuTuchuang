@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from src.server.database import get_db
 from .. import service
+from ..config import auth_config
 from ..models import User
 from ..schemas import (
     UserCreate,
@@ -14,6 +15,14 @@ from ..schemas import (
     VerificationCodeRequest,
 )
 from .base import router
+
+
+def _ensure_public_registration_enabled() -> None:
+    if not auth_config.enable_public_registration:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="公开注册已关闭，请联系管理员创建账号",
+        )
 
 
 @router.post(
@@ -33,6 +42,7 @@ async def register_user(
     user_data: UserRegisterWithCode,
     db: Session = Depends(get_db),
 ):
+    _ensure_public_registration_enabled()
     await service.verify_turnstile_token(
         request=request,
         token=user_data.turnstile_token,
@@ -78,6 +88,7 @@ async def send_verification_code(
     payload: VerificationCodeRequest,
     db: Session = Depends(get_db),
 ):
+    _ensure_public_registration_enabled()
     await service.verify_turnstile_token(
         request=request,
         token=payload.turnstile_token,
@@ -119,6 +130,7 @@ async def register_user_with_code(
     user_data: UserRegisterWithCode,
     db: Session = Depends(get_db),
 ):
+    _ensure_public_registration_enabled()
     await service.verify_turnstile_token(
         request=request,
         token=user_data.turnstile_token,

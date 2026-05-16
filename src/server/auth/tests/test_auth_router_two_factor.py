@@ -46,7 +46,7 @@ def test_two_factor_login_challenge_flow(test_client, test_db_session: Session):
     assert verify_resp.status_code == 200, verify_resp.text
     assert "access_token" in verify_resp.json()
 
-    refresh_cookie = verify_resp.cookies.get("fullstack_template_refresh_token")
+    refresh_cookie = verify_resp.cookies.get("feishu_image_host_refresh_token")
     assert refresh_cookie is not None
     payload = jwt.decode(
         refresh_cookie,

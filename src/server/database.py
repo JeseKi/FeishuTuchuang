@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-数据库连接与初始化（极简模板版）
+数据库连接与初始化
 
 公开接口：
 - `Base`：SQLAlchemy 声明基类
@@ -15,7 +15,7 @@
 
 说明：
 - 使用 SQLite，路由中通过 `asyncio.to_thread` 调用同步 ORM，避免阻塞事件循环。
-- 模板项目不内置自动 schema 迁移；模型变更后请删除数据库并重新初始化。
+- 生产部署请使用 Alembic 迁移维护 schema。
 """
 
 from __future__ import annotations

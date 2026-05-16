@@ -3,7 +3,6 @@ import {
   App,
   Button,
   Card,
-  Divider,
   Flex,
   Form,
   Input,
@@ -14,8 +13,6 @@ import {
 } from 'antd'
 import {
   ArrowLeftOutlined,
-  GithubOutlined,
-  GoogleOutlined,
   KeyOutlined,
   LockOutlined,
   LoginOutlined,
@@ -23,17 +20,12 @@ import {
   SafetyCertificateOutlined,
   UserOutlined,
 } from '@ant-design/icons'
-import { useEffect, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import TurnstileWidget from '../../components/auth/TurnstileWidget'
 import { useAuth } from '../../hooks/useAuth'
 import { useRuntimeConfig } from '../../hooks/useRuntimeConfig'
 import { resolveApiErrorMessage } from '../../lib/error'
-import {
-  buildOAuthAuthorizeUrl,
-  fetchOAuthProviders,
-} from '../../lib/auth'
-import type { OAuthProviderInfo } from '../../lib/types'
 
 function normalizeRedirectPath(path: string | null | undefined): string | null {
   if (!path || !path.startsWith('/') || path.startsWith('//')) {
@@ -45,7 +37,7 @@ function normalizeRedirectPath(path: string | null | undefined): string | null {
 export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { exchangeOAuthTicket, login, verifyTwoFactorLogin, loading, isAuthenticated, sendPasswordResetLink } = useAuth()
+  const { login, verifyTwoFactorLogin, loading, isAuthenticated, sendPasswordResetLink } = useAuth()
   const { turnstile } = useRuntimeConfig()
   const { message } = App.useApp()
   const turnstileSiteKey = turnstile.siteKey
@@ -63,10 +55,7 @@ export default function LoginPage() {
   const [resetError, setResetError] = useState<string | null>(null)
   const [resetCountdown, setResetCountdown] = useState(0)
   const [resetTurnstileToken, setResetTurnstileToken] = useState<string | null>(null)
-  const [oauthProviders, setOauthProviders] = useState<OAuthProviderInfo[]>([])
   const [loginTurnstileToken, setLoginTurnstileToken] = useState<string | null>(null)
-  const handledOAuthTicketRef = useRef<string | null>(null)
-  const handledOAuthErrorRef = useRef<string | null>(null)
 
   const locationState = location.state as
     | { from?: { pathname?: string; search?: string }; registerSuccess?: boolean }
@@ -74,8 +63,6 @@ export default function LoginPage() {
   const registerSuccess = locationState?.registerSuccess ?? false
 
   const searchParams = new URLSearchParams(location.search)
-  const oauthTicket = searchParams.get('oauth_ticket')
-  const oauthError = searchParams.get('oauth_error')
   const oauthRedirectPath = normalizeRedirectPath(searchParams.get('oauth_redirect_path'))
   const locationRedirectPath = locationState?.from?.pathname
     ? `${locationState.from.pathname}${locationState.from.search ?? ''}`
@@ -87,83 +74,6 @@ export default function LoginPage() {
       navigate('/', { replace: true })
     }
   }, [isAuthenticated, loading, navigate])
-
-  useEffect(() => {
-    let alive = true
-
-    fetchOAuthProviders()
-      .then((providers) => {
-        if (alive) {
-          setOauthProviders(providers)
-        }
-      })
-      .catch((err) => {
-        console.error('【登录页面】获取 OAuth 渠道失败', err)
-        if (alive) {
-          setOauthProviders([])
-        }
-      })
-
-    return () => {
-      alive = false
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!oauthError || handledOAuthErrorRef.current === oauthError) {
-      return
-    }
-    handledOAuthErrorRef.current = oauthError
-    setError(oauthError)
-    message.error(oauthError)
-    navigate('/login', { replace: true, state: location.state })
-  }, [location.state, message, navigate, oauthError])
-
-  useEffect(() => {
-    if (!oauthTicket || handledOAuthTicketRef.current === oauthTicket) {
-      return
-    }
-    handledOAuthTicketRef.current = oauthTicket
-
-    const exchange = async () => {
-      setSubmitting(true)
-      setError(null)
-      try {
-        const result = await exchangeOAuthTicket({ ticket: oauthTicket })
-        if ('requires_2fa' in result) {
-          setPendingChallengeToken(result.challenge_token)
-          setUseBackupCode(false)
-          twoFactorForm.resetFields()
-          message.info('OAuth 验证通过，请继续输入双因素验证码。')
-          navigate('/login', {
-            replace: true,
-            state: { from: { pathname: redirectPath } },
-          })
-          return
-        }
-        message.success('欢迎回来')
-        navigate(redirectPath, { replace: true })
-      } catch (err) {
-        console.error('【登录页面】OAuth 票据交换失败', err)
-        const text = resolveApiErrorMessage(err, 'OAuth 登录失败，请稍后重试。')
-        setError(text)
-        message.error(text)
-        navigate('/login', { replace: true, state: location.state })
-      } finally {
-        setSubmitting(false)
-      }
-    }
-
-    void exchange()
-  }, [
-    exchangeOAuthTicket,
-    location.state,
-    message,
-    navigate,
-    oauthTicket,
-    redirectPath,
-    twoFactorForm,
-  ])
 
   useEffect(() => {
     if (resetCountdown <= 0) {
@@ -297,7 +207,7 @@ export default function LoginPage() {
               欢迎回来
             </Typography.Title>
             <Typography.Text type="secondary">
-              输入用户名或邮箱及密码以访问现代化的前端模板。
+              输入用户名或邮箱及密码以管理飞书图床。
             </Typography.Text>
           </div>
           {registerSuccess && <Alert type="success" showIcon message="注册成功，请使用新账号登录。" style={{ marginBottom: 0 }} />}
@@ -429,38 +339,10 @@ export default function LoginPage() {
                   </Button>
                 </Form.Item>
               </Form>
-              {oauthProviders.length > 0 && (
-                <>
-                  <Divider plain style={{ marginBlock: 0 }}>
-                    或
-                  </Divider>
-                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                    {oauthProviders.map((provider) => (
-                      <Button
-                        key={provider.provider}
-                        size="large"
-                        icon={provider.provider === 'GITHUB' ? <GithubOutlined /> : <GoogleOutlined />}
-                        loading={submitting}
-                        block
-                        onClick={() => {
-                          window.location.assign(buildOAuthAuthorizeUrl(provider.provider, redirectPath))
-                        }}
-                      >
-                        使用 {provider.label} 登录
-                      </Button>
-                    ))}
-                  </Space>
-                </>
-              )}
             </>
           )}
           <Flex justify="space-between" align="center">
-            <Flex gap={8} align="center">
-              <Typography.Text type="secondary">还没有账号？</Typography.Text>
-              <Link to="/register" className="theme-link">
-                立即注册
-              </Link>
-            </Flex>
+            <Typography.Text type="secondary">账号由管理员创建</Typography.Text>
             <Button type="link" onClick={() => setResetOpen(true)} style={{ paddingInline: 0 }}>
               忘记密码？
             </Button>

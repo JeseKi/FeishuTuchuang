@@ -189,7 +189,7 @@ def test_github_oauth_auto_creates_user_and_ticket(
     exchange_resp = test_client.post("/api/oauth/ticket", json={"ticket": ticket})
     assert exchange_resp.status_code == 200, exchange_resp.text
     assert "access_token" in exchange_resp.json()
-    assert exchange_resp.cookies.get("fullstack_template_refresh_token") is not None
+    assert exchange_resp.cookies.get("feishu_image_host_refresh_token") is not None
 
     user = test_db_session.query(User).filter(User.email == FAKE_GITHUB_EMAIL).first()
     assert user is not None
@@ -224,7 +224,7 @@ def test_google_oauth_auto_creates_user_and_ticket(
     exchange_resp = test_client.post("/api/oauth/ticket", json={"ticket": ticket})
     assert exchange_resp.status_code == 200, exchange_resp.text
     assert "access_token" in exchange_resp.json()
-    assert exchange_resp.cookies.get("fullstack_template_refresh_token") is not None
+    assert exchange_resp.cookies.get("feishu_image_host_refresh_token") is not None
 
     user = test_db_session.query(User).filter(User.email == FAKE_GOOGLE_EMAIL).first()
     assert user is not None

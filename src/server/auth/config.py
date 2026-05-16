@@ -22,7 +22,7 @@ class AuthConfig(BaseSettings):
     access_token_ttl_minutes: int = Field(default=15, title="Access Token 有效期(分钟)")
     refresh_token_ttl_days: int = Field(default=7, title="Refresh Token 有效期(天)")
     refresh_cookie_name: str = Field(
-        default="fullstack_template_refresh_token", title="Refresh Cookie 名称"
+        default="feishu_image_host_refresh_token", title="Refresh Cookie 名称"
     )
     refresh_cookie_samesite: str = Field(default="lax", title="Refresh Cookie SameSite")
     refresh_cookie_secure: bool = Field(
@@ -48,6 +48,11 @@ class AuthConfig(BaseSettings):
         title="初始化管理员邮箱",
         description="生产务必通过环境变量覆盖",
     )
+    enable_public_registration: bool = Field(
+        default=False,
+        title="是否开放公开注册",
+        description="自托管图床默认关闭公开注册，由管理员创建用户。",
+    )
     two_factor_challenge_ttl_minutes: int = Field(
         default=5, title="2FA 登录挑战有效期(分钟)"
     )
@@ -55,10 +60,10 @@ class AuthConfig(BaseSettings):
         default=10, title="2FA 绑定确认有效期(分钟)"
     )
     two_factor_issuer_name: str = Field(
-        default="Fullstack Template", title="TOTP Issuer 名称"
+        default="Feishu Image Host", title="TOTP Issuer 名称"
     )
     two_factor_encryption_key: str = Field(
-        default="fullstack-template-2fa-dev-key-change-me",
+        default="feishu-image-host-2fa-dev-key-change-me",
         title="2FA secret 加密密钥",
         description="生产务必通过环境变量覆盖",
     )

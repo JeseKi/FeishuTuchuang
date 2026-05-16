@@ -64,11 +64,12 @@ async def lifespan(_: FastAPI):
 
     from src.server.database import SessionLocal
 
-    db = SessionLocal()
-    try:
-        sync_external_providers(db)
-    finally:
-        db.close()
+    if global_config.enable_external_provider_registry:
+        db = SessionLocal()
+        try:
+            sync_external_providers(db)
+        finally:
+            db.close()
 
     from src.server.image_host.maintenance import (
         start_maintenance_task,
@@ -87,8 +88,8 @@ async def lifespan(_: FastAPI):
 
 # --- 应用实例与中间件 ---
 fastapi_kwargs = {
-    "title": "Fullstack Template Backend",
-    "description": "提供身份验证、数据库交互及示例模块的后端服务。",
+    "title": "Feishu Image Host Backend",
+    "description": "自托管飞书图床后端服务。",
     "lifespan": lifespan,
 }
 
@@ -191,19 +192,29 @@ def health():
     return {"status": "ok"}
 
 
-app.include_router(auth_router)
-app.include_router(oauth_router)
-app.include_router(oauth_provider_router)
-app.include_router(example_router)
-app.include_router(image_host_router)
-app.include_router(api_key_router)
-app.include_router(api_v1_router)
-app.include_router(api_v2_router)
-app.include_router(feishu_folder_router)
-app.include_router(admin_router)
-app.include_router(scope_management_router)
-if global_config.app_env == "dev":
-    app.include_router(provider_dev_router)
+def include_api_routers(target_app: FastAPI) -> None:
+    """挂载核心图床路由，并按配置暴露模板时期的扩展能力。"""
+    target_app.include_router(auth_router)
+    target_app.include_router(image_host_router)
+    target_app.include_router(api_key_router)
+    target_app.include_router(api_v1_router)
+    target_app.include_router(api_v2_router)
+    target_app.include_router(feishu_folder_router)
+    target_app.include_router(admin_router)
+
+    if global_config.enable_oauth_login:
+        target_app.include_router(oauth_router)
+    if global_config.enable_oauth_provider:
+        target_app.include_router(oauth_provider_router)
+    if global_config.enable_example_module:
+        target_app.include_router(example_router)
+    if global_config.enable_scope_management:
+        target_app.include_router(scope_management_router)
+    if global_config.app_env == "dev" and global_config.enable_dev_provider_runtime:
+        target_app.include_router(provider_dev_router)
+
+
+include_api_routers(app)
 
 
 # --- 前端 SPA 静态文件服务 ---

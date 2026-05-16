@@ -43,7 +43,7 @@ def test_send_verification_code_uses_html_mail(
     mail = sent_mail["mail"]
     assert len(code) == 6
     assert mail.subtype == "html"
-    assert "Fullstack Template" in mail.body
+    assert "Feishu Image Host" in mail.body
     assert "请完成邮箱验证" in mail.body
     assert code in mail.body
     assert "验证码有效期 5 分钟" in mail.body
