@@ -113,6 +113,7 @@ def test_db_engine() -> Iterator[Connection]:
     import src.server.image_host.models  # noqa: F401
     import src.server.api_keys.models  # noqa: F401
     import src.server.feishu_folder.models  # noqa: F401
+    import src.server.admin.models  # noqa: F401
 
     Base.metadata.create_all(bind=keep_conn)
 

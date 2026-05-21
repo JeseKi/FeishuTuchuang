@@ -10,7 +10,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from src.server.auth.schemas import UserRole, UserStatus
 
@@ -53,3 +53,21 @@ class AdminUserUpdate(BaseModel):
 
 class AdminUserScopesUpdate(BaseModel):
     scopes: list[str] = Field(default_factory=list)
+
+
+class AdminSettingsOut(BaseModel):
+    image_cors_allowed_origin: str
+
+
+class AdminSettingsUpdate(BaseModel):
+    image_cors_allowed_origin: str = Field(..., max_length=500)
+
+    @field_validator("image_cors_allowed_origin")
+    @classmethod
+    def validate_image_cors_allowed_origin(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("图片 CORS 允许源不能为空")
+        if "\r" in normalized or "\n" in normalized:
+            raise ValueError("图片 CORS 允许源不能包含换行符")
+        return normalized

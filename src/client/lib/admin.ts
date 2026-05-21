@@ -2,6 +2,8 @@ import api, { buildTwoFactorHeaders } from './api'
 import type {
   AdminScope,
   AdminScopeUpdatePayload,
+  AdminSettings,
+  AdminSettingsUpdatePayload,
   AdminUser,
   AdminUserCreatePayload,
   AdminUserScopesUpdatePayload,
@@ -62,6 +64,21 @@ export async function updateUserScopes(
   twoFactorCode?: string,
 ): Promise<AdminUser> {
   const { data } = await api.put<AdminUser>(`/admin/users/${userId}/scopes`, payload, {
+    headers: buildTwoFactorHeaders(twoFactorCode),
+  })
+  return data
+}
+
+export async function getAdminSettings(): Promise<AdminSettings> {
+  const { data } = await api.get<AdminSettings>('/admin/settings')
+  return data
+}
+
+export async function updateAdminSettings(
+  payload: AdminSettingsUpdatePayload,
+  twoFactorCode?: string,
+): Promise<AdminSettings> {
+  const { data } = await api.patch<AdminSettings>('/admin/settings', payload, {
     headers: buildTwoFactorHeaders(twoFactorCode),
   })
   return data

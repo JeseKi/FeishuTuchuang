@@ -110,6 +110,40 @@ def test_upload_image_and_get_public_url(
     assert image_resp.headers["content-type"].startswith("image/png")
     assert image_resp.content == PNG_BYTES
     assert image_resp.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert image_resp.headers["access-control-allow-origin"] == "*"
+
+
+def test_public_image_uses_admin_cors_setting(
+    test_client,
+    init_test_database,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+    custom_origin = "https://43.139.69.53:20194"
+    settings_resp = test_client.patch(
+        "/api/admin/settings",
+        headers=headers,
+        json={"image_cors_allowed_origin": custom_origin},
+    )
+    assert settings_resp.status_code == HTTPStatus.OK, settings_resp.text
+
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+    filename = upload_resp.json()["filename"]
+
+    allowed_resp = test_client.get(f"/i/{filename}", headers={"Origin": custom_origin})
+    assert allowed_resp.status_code == HTTPStatus.OK, allowed_resp.text
+    assert allowed_resp.headers["access-control-allow-origin"] == custom_origin
+
+    blocked_resp = test_client.get(
+        f"/i/{filename}", headers={"Origin": "https://example.com"}
+    )
+    assert blocked_resp.status_code == HTTPStatus.OK, blocked_resp.text
+    assert blocked_resp.headers["access-control-allow-origin"] == custom_origin
 
 
 def test_upload_duplicate_reuses_existing_asset(

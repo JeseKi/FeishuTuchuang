@@ -264,6 +264,14 @@ export interface AdminScopeUpdatePayload {
   category: ScopeCategory
 }
 
+export interface AdminSettings {
+  image_cors_allowed_origin: string
+}
+
+export interface AdminSettingsUpdatePayload {
+  image_cors_allowed_origin: string
+}
+
 export interface ItemPayload {
   name: string
 }

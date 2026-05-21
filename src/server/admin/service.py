@@ -24,6 +24,11 @@ from src.server.auth.service import (
     serialize_scopes,
     validate_scope_overrides,
 )
+from .models import AdminSetting
+
+
+IMAGE_CORS_ALLOWED_ORIGIN_KEY = "image_cors_allowed_origin"
+DEFAULT_IMAGE_CORS_ALLOWED_ORIGIN = "*"
 
 
 def create_user(
@@ -99,3 +104,46 @@ def update_user_scopes(db: Session, user: User, scopes: list[str]) -> User:
 
 def delete_user(db: Session, user: User) -> None:
     UserDAO(db).delete(user)
+
+
+def get_setting_value(db: Session, key: str, default: str) -> str:
+    setting = db.query(AdminSetting).filter(AdminSetting.key == key).first()
+    if not setting:
+        return default
+    value = setting.value.strip()
+    return value or default
+
+
+def set_setting_value(db: Session, key: str, value: str) -> AdminSetting:
+    setting = db.query(AdminSetting).filter(AdminSetting.key == key).first()
+    if setting:
+        setting.value = value
+    else:
+        setting = AdminSetting(key=key, value=value)
+        db.add(setting)
+    db.commit()
+    db.refresh(setting)
+    return setting
+
+
+def get_admin_settings(db: Session) -> dict[str, str]:
+    return {
+        IMAGE_CORS_ALLOWED_ORIGIN_KEY: get_image_cors_allowed_origin(db),
+    }
+
+
+def update_admin_settings(db: Session, *, image_cors_allowed_origin: str) -> dict[str, str]:
+    set_setting_value(
+        db,
+        IMAGE_CORS_ALLOWED_ORIGIN_KEY,
+        image_cors_allowed_origin.strip(),
+    )
+    return get_admin_settings(db)
+
+
+def get_image_cors_allowed_origin(db: Session) -> str:
+    return get_setting_value(
+        db,
+        IMAGE_CORS_ALLOWED_ORIGIN_KEY,
+        DEFAULT_IMAGE_CORS_ALLOWED_ORIGIN,
+    )

@@ -22,6 +22,8 @@ from .schemas import (
     AdminUserOut,
     AdminUserScopesUpdate,
     AdminUserUpdate,
+    AdminSettingsOut,
+    AdminSettingsUpdate,
 )
 from . import service
 
@@ -219,3 +221,42 @@ async def update_user_scopes(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         )
+
+
+@router.get(
+    "/settings",
+    response_model=AdminSettingsOut,
+    summary="获取管理员配置",
+    description="管理员查看系统配置项。",
+    responses={
+        200: {"description": "获取配置成功"},
+        403: {"description": "无管理员权限"},
+    },
+)
+async def get_admin_settings(
+    _: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    return service.get_admin_settings(db)
+
+
+@router.patch(
+    "/settings",
+    response_model=AdminSettingsOut,
+    summary="更新管理员配置",
+    description="管理员更新系统配置项。",
+    responses={
+        200: {"description": "更新配置成功"},
+        400: {"description": "请求参数错误"},
+        403: {"description": "无管理员权限"},
+    },
+)
+async def update_admin_settings(
+    payload: AdminSettingsUpdate,
+    _: User = Depends(get_current_admin_writer),
+    db: Session = Depends(get_db),
+):
+    return service.update_admin_settings(
+        db,
+        image_cors_allowed_origin=payload.image_cors_allowed_origin,
+    )

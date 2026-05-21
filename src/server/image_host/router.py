@@ -21,6 +21,7 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, FileResponse
 from sqlalchemy.orm import Session
 
+from src.server.admin.service import get_image_cors_allowed_origin
 from src.server.auth.dependencies import get_current_user
 from src.server.auth.models import User
 from src.server.auth.service.scopes import SCOPE_PROFILE_READ
@@ -196,8 +197,11 @@ async def get_public_image(
     db: Session = Depends(get_db),
 ):
     cache_file, mime_type = await service.get_image_file(db, filename=filename)
+    headers = {"Cache-Control": "public, max-age=31536000, immutable"}
+    allowed_origin = get_image_cors_allowed_origin(db)
+    headers["Access-Control-Allow-Origin"] = allowed_origin
     return FileResponse(
         cache_file,
         media_type=mime_type,
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        headers=headers,
     )
