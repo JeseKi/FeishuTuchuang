@@ -85,6 +85,11 @@ class GlobalConfig(BaseSettings):
         title="是否同步外部 Provider 注册表",
     )
 
+    enable_docs: bool = Field(
+        default=False,
+        title="是否启用内置 MkDocs 文档站点",
+    )
+
     app_domain: str = Field(
         default="",
         title="应用域名",

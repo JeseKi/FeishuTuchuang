@@ -2,11 +2,11 @@
 """开源默认配置测试。"""
 
 from fastapi import FastAPI
-from starlette.routing import Route
+from starlette.routing import Mount, Route
 
 from src.server.auth.config import auth_config
 from src.server.config import GlobalConfig
-from src.server.main import include_api_routers
+from src.server.main import include_api_routers, mount_docs_static
 
 
 def test_default_feature_flags_keep_template_routes_disabled(
@@ -19,6 +19,7 @@ def test_default_feature_flags_keep_template_routes_disabled(
         "ENABLE_SCOPE_MANAGEMENT",
         "ENABLE_DEV_PROVIDER_RUNTIME",
         "ENABLE_EXTERNAL_PROVIDER_REGISTRY",
+        "ENABLE_DOCS",
     ]
     for env_name in env_names:
         monkeypatch.delenv(env_name, raising=False)
@@ -31,6 +32,7 @@ def test_default_feature_flags_keep_template_routes_disabled(
     assert config.enable_scope_management is False
     assert config.enable_dev_provider_runtime is False
     assert config.enable_external_provider_registry is False
+    assert config.enable_docs is False
 
 
 def test_disabled_optional_routes_are_not_mounted(monkeypatch) -> None:
@@ -53,6 +55,29 @@ def test_disabled_optional_routes_are_not_mounted(monkeypatch) -> None:
     assert "/api/oauth-provider/clients" not in paths
     assert "/api/admin/scopes" not in paths
     assert "/api/dev/providers/runtime-config" not in paths
+
+
+def test_docs_route_is_not_mounted_by_default(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("src.server.main.global_config.enable_docs", False)
+    monkeypatch.setattr("src.server.main.MKDOCS_SITE_DIR", tmp_path)
+
+    app = FastAPI()
+    mount_docs_static(app)
+
+    paths = {route.path for route in app.routes if isinstance(route, Mount)}
+    assert "/mkdocs/docs" not in paths
+
+
+def test_docs_route_is_mounted_when_enabled(monkeypatch, tmp_path) -> None:
+    (tmp_path / "index.html").write_text("docs", encoding="utf-8")
+    monkeypatch.setattr("src.server.main.global_config.enable_docs", True)
+    monkeypatch.setattr("src.server.main.MKDOCS_SITE_DIR", tmp_path)
+
+    app = FastAPI()
+    mount_docs_static(app)
+
+    paths = {route.path for route in app.routes if isinstance(route, Mount)}
+    assert "/mkdocs/docs" in paths
 
 
 def test_public_registration_is_disabled_when_configured(

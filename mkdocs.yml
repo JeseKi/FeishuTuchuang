@@ -1,0 +1,37 @@
+site_name: Feishu Image Host
+site_description: 自托管飞书图床文档
+docs_dir: mkdocs/docs
+site_dir: mkdocs/site
+use_directory_urls: true
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+
+nav:
+  - 首页: index.md
+  - 使用指南:
+      - 部署: guide/deployment.md
+      - 首次初始化: guide/initialization.md
+      - 配置: guide/configuration.md
+      - 飞书应用: guide/feishu-app.md
+      - API Key: guide/api-key.md
+      - 内置文档: guide/embedded-docs.md
+      - 运维: guide/operations.md
+      - 本地开发: guide/development.md
+      - 常见问题: guide/troubleshooting.md
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences

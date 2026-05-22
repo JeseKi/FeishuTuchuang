@@ -41,6 +41,8 @@ from src.server.feishu_folder.router import router as feishu_folder_router
 PROJECT_ROOT = Path(global_config.project_root)
 DIST_DIR = PROJECT_ROOT / "dist"
 INDEX_FILE = DIST_DIR / "index.html"
+MKDOCS_SITE_DIR = PROJECT_ROOT / "mkdocs" / "site"
+DOCS_ROUTE = "/mkdocs/docs"
 ASSETS_DIRNAME = "assets"  # Vite 默认的 hash 产物目录
 
 setup_logging()
@@ -217,6 +219,28 @@ def include_api_routers(target_app: FastAPI) -> None:
 include_api_routers(app)
 
 
+def mount_docs_static(target_app: FastAPI) -> None:
+    """按配置挂载 MkDocs 静态文档站点。"""
+    if not global_config.enable_docs:
+        return
+
+    if not MKDOCS_SITE_DIR.exists():
+        logger.warning(
+            f"MkDocs 构建目录 '{MKDOCS_SITE_DIR}' 不存在，将不会提供内置文档。"
+        )
+        return
+
+    target_app.mount(
+        DOCS_ROUTE,
+        StaticFiles(directory=str(MKDOCS_SITE_DIR), html=True),
+        name="mkdocs-docs",
+    )
+    logger.info(f"内置 MkDocs 文档已挂载到 {DOCS_ROUTE}/")
+
+
+mount_docs_static(app)
+
+
 # --- 前端 SPA 静态文件服务 ---
 class SPAStaticFiles(StaticFiles):
     """
@@ -232,7 +256,7 @@ class SPAStaticFiles(StaticFiles):
         except Exception:
             # 如果找不到文件 (Starlette 会抛出 RuntimeError, FastAPI 转为 404)
             # 并且请求的不是 API 路径，则返回 SPA 的入口 index.html
-            if scope["path"].startswith("/api"):
+            if scope["path"].startswith(("/api", DOCS_ROUTE)):
                 return Response(status_code=404)  # API 的 404 应该由 FastAPI 框架处理
 
             if INDEX_FILE.exists():
