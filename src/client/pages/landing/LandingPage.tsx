@@ -77,8 +77,9 @@ export default function LandingPage() {
     <div className="min-h-screen bg-[var(--app-bg)] text-[var(--app-text-primary)] transition-colors duration-300">
       <header className="fixed top-0 w-full z-50 bg-[var(--app-elevated-bg)] backdrop-blur-md border-b border-[var(--app-border-color)]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="text-xl font-bold tracking-tight">
-            飞书图床
+          <div className="flex items-center gap-2 text-xl font-bold tracking-tight">
+            <img src="/logo.svg" alt="飞书图床" className="h-8 w-8" />
+            <span>飞书图床</span>
           </div>
           {isAuthenticated ? (
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" arrow>
@@ -98,6 +99,7 @@ export default function LandingPage() {
       <section className="pt-32 pb-16 px-4 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto">
           <Tag color="blue" className="mb-4">自托管飞书图床</Tag>
+          <img src="/logo.svg" alt="飞书图床" className="mb-6 h-20 w-20" />
           <Typography.Title level={1} className="!mb-6">
             用飞书云空间托管图片
           </Typography.Title>

@@ -262,18 +262,26 @@ export default function MainLayout() {
               {!collapsed && (
                 <Link
                   to="/"
-                  className="text-base font-semibold"
+                  className="flex items-center gap-2 text-base font-semibold"
                   style={{ color: token.colorTextHeading, whiteSpace: 'nowrap' }}
                 >
-                  飞书图床
+                  <img src="/logo.svg" alt="飞书图床" style={{ width: 28, height: 28 }} />
+                  <span>飞书图床</span>
                 </Link>
               )}
-              <Button
-                type="text"
-                icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                onClick={toggleCollapsed}
-                style={{ marginLeft: collapsed ? 0 : 'auto' }}
-              />
+              {collapsed && (
+                <Link to="/" aria-label="飞书图床">
+                  <img src="/logo.svg" alt="" style={{ width: 30, height: 30 }} />
+                </Link>
+              )}
+              {!collapsed && (
+                <Button
+                  type="text"
+                  icon={<MenuFoldOutlined />}
+                  onClick={toggleCollapsed}
+                  style={{ marginLeft: 'auto' }}
+                />
+              )}
             </Flex>
             <Menu
               mode="inline"
