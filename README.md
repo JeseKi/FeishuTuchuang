@@ -231,3 +231,7 @@ pnpm build
 ## License
 
 MIT
+
+## Friendly Links
+
+- [LINUX DO - 新的理想型社区](https://linux.do/)
