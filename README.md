@@ -1,5 +1,8 @@
 # Feishu Image Host
 
+![banner](https://fstc.kispace.cc/i/ebe8a14c823fbb2b110d4066459c4250.png)
+<video controls="controls" src="https://fstc.kispace.cc/i/0592bddd3028bf5dae13a4956f09939a.mp4"></video>
+
 自托管飞书图床。图片上传到飞书 Drive，本机磁盘作为热缓存，对外提供稳定的图片访问 URL。
 
 默认形态适合个人和小团队部署：公开注册关闭，由管理员创建用户；模板时期的示例模块、OAuth Provider、Scope 管理和开发 Provider Runtime 代码仍保留，但默认不挂载路由、不显示入口。
