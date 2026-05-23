@@ -1,7 +1,6 @@
 # Feishu Image Host
 
-![banner](https://fstc.kispace.cc/i/ebe8a14c823fbb2b110d4066459c4250.png)
-<video controls="controls" src="https://fstc.kispace.cc/i/0592bddd3028bf5dae13a4956f09939a.mp4"></video>
+[![banner](https://fstc.kispace.cc/i/ebe8a14c823fbb2b110d4066459c4250.png)](https://fstc.kispace.cc/i/0592bddd3028bf5dae13a4956f09939a.mp4)
 
 自托管飞书图床。图片上传到飞书 Drive，本机磁盘作为热缓存，对外提供稳定的图片访问 URL。
 
