@@ -45,6 +45,14 @@ class ImageStorageBackend(Protocol):
         """移动后端资源到指定文件夹。"""
         ...
 
+    async def create_folder(self, *, parent_folder_token: str, name: str) -> str:
+        """在指定父文件夹下创建文件夹并返回新文件夹 token。"""
+        ...
+
+    async def count_folder_nodes(self, *, folder_token: str) -> int:
+        """统计指定文件夹下的节点数量。"""
+        ...
+
 
 class FeishuDriveStorageBackend:
     """基于飞书 Drive 文件 API 的冷存储后端。"""
@@ -177,6 +185,54 @@ class FeishuDriveStorageBackend:
             response = await client.post(url, json=body, headers=headers)
 
         self._json_or_error(response, "飞书 Drive 文件移动失败")
+
+    async def create_folder(self, *, parent_folder_token: str, name: str) -> str:
+        token = await get_valid_user_access_token()
+        url = f"{self._base_url}/drive/v1/files/create_folder"
+        headers = {"Authorization": f"Bearer {token}"}
+        body = {"folder_token": parent_folder_token, "name": name}
+
+        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT, trust_env=True) as client:
+            response = await client.post(url, json=body, headers=headers)
+
+        payload = self._json_or_error(response, "飞书 Drive 文件夹创建失败")
+        folder_token = payload.get("data", {}).get("token")
+        if not folder_token:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="飞书 Drive 文件夹创建响应缺少 token",
+            )
+        return str(folder_token)
+
+    async def count_folder_nodes(self, *, folder_token: str) -> int:
+        token = await get_valid_user_access_token()
+        url = f"{self._base_url}/drive/v1/files"
+        headers = {"Authorization": f"Bearer {token}"}
+        params: dict[str, str | int] = {
+            "folder_token": folder_token,
+            "page_size": 200,
+        }
+        total = 0
+
+        async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT, trust_env=True) as client:
+            while True:
+                response = await client.get(url, params=params, headers=headers)
+                payload = self._json_or_error(
+                    response,
+                    "飞书 Drive 文件夹节点统计失败",
+                )
+                data = payload.get("data", {})
+                files = data.get("files") or []
+                total += len(files)
+                if not data.get("has_more"):
+                    return total
+                page_token = data.get("next_page_token")
+                if not page_token:
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail="飞书 Drive 文件夹节点统计响应缺少 next_page_token",
+                    )
+                params["page_token"] = str(page_token)
 
     async def _get_upload_folder_token(self) -> str:
         configured_folder_token = _upload_folder_token.get()

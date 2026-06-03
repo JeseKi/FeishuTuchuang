@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from src.server.dao.dao_base import BaseDAO
 
-from .models import ImageAsset, ImageHostFeishuOAuthToken
+from .models import ImageAsset, ImageHostFeishuOAuthToken, ImageHostFeishuFolderBucket
 
 FEISHU_OAUTH_TOKEN_ID = 1
 
@@ -30,6 +30,7 @@ class ImageAssetDAO(BaseDAO):
         size_bytes: int,
         feishu_file_token: str,
         feishu_folder_id: int | None,
+        feishu_folder_bucket_id: int | None,
         cache_path: str,
         uploaded_by_user_id: int | None,
         last_accessed_at: datetime,
@@ -43,6 +44,7 @@ class ImageAssetDAO(BaseDAO):
             size_bytes=size_bytes,
             feishu_file_token=feishu_file_token,
             feishu_folder_id=feishu_folder_id,
+            feishu_folder_bucket_id=feishu_folder_bucket_id,
             cache_path=cache_path,
             uploaded_by_user_id=uploaded_by_user_id,
             last_accessed_at=last_accessed_at,
@@ -80,6 +82,7 @@ class ImageAssetDAO(BaseDAO):
         size_bytes: int,
         cache_path: str,
         feishu_folder_id: int | None,
+        feishu_folder_bucket_id: int | None,
         last_accessed_at: datetime,
     ) -> ImageAsset:
         asset.feishu_file_token = feishu_file_token
@@ -88,14 +91,22 @@ class ImageAssetDAO(BaseDAO):
         asset.size_bytes = size_bytes
         asset.cache_path = cache_path
         asset.feishu_folder_id = feishu_folder_id
+        asset.feishu_folder_bucket_id = feishu_folder_bucket_id
         asset.last_accessed_at = last_accessed_at
         asset.updated_at = datetime.now(timezone.utc)
         self.db_session.commit()
         self.db_session.refresh(asset)
         return asset
 
-    def update_folder(self, asset: ImageAsset, *, feishu_folder_id: int) -> ImageAsset:
+    def update_folder(
+        self,
+        asset: ImageAsset,
+        *,
+        feishu_folder_id: int,
+        feishu_folder_bucket_id: int | None,
+    ) -> ImageAsset:
         asset.feishu_folder_id = feishu_folder_id
+        asset.feishu_folder_bucket_id = feishu_folder_bucket_id
         asset.updated_at = datetime.now(timezone.utc)
         self.db_session.commit()
         self.db_session.refresh(asset)
@@ -266,3 +277,93 @@ class FeishuOAuthTokenDAO(BaseDAO):
             return
         self.db_session.delete(token)
         self.db_session.commit()
+
+
+class ImageHostFeishuFolderBucketDAO(BaseDAO):
+    def __init__(self, db_session: Session):
+        super().__init__(db_session)
+
+    def get_available(
+        self,
+        *,
+        feishu_folder_id: int,
+        max_assigned_count: int,
+    ) -> ImageHostFeishuFolderBucket | None:
+        return (
+            self.db_session.query(ImageHostFeishuFolderBucket)
+            .filter(
+                ImageHostFeishuFolderBucket.feishu_folder_id == feishu_folder_id,
+                ImageHostFeishuFolderBucket.assigned_count < max_assigned_count,
+            )
+            .order_by(ImageHostFeishuFolderBucket.sequence.asc())
+            .first()
+        )
+
+    def get_latest(
+        self,
+        *,
+        feishu_folder_id: int,
+    ) -> ImageHostFeishuFolderBucket | None:
+        return (
+            self.db_session.query(ImageHostFeishuFolderBucket)
+            .filter(ImageHostFeishuFolderBucket.feishu_folder_id == feishu_folder_id)
+            .order_by(ImageHostFeishuFolderBucket.sequence.desc())
+            .first()
+        )
+
+    def create(
+        self,
+        *,
+        feishu_folder_id: int,
+        name: str,
+        folder_token: str,
+        sequence: int,
+        assigned_count: int,
+    ) -> ImageHostFeishuFolderBucket:
+        bucket = ImageHostFeishuFolderBucket(
+            feishu_folder_id=feishu_folder_id,
+            name=name,
+            folder_token=folder_token,
+            sequence=sequence,
+            assigned_count=assigned_count,
+        )
+        self.db_session.add(bucket)
+        self.db_session.commit()
+        self.db_session.refresh(bucket)
+        return bucket
+
+    def increment_assigned_count(
+        self,
+        bucket: ImageHostFeishuFolderBucket,
+    ) -> ImageHostFeishuFolderBucket:
+        bucket.assigned_count += 1
+        bucket.updated_at = datetime.now(timezone.utc)
+        self.db_session.commit()
+        self.db_session.refresh(bucket)
+        return bucket
+
+    def decrement_assigned_count(self, bucket_id: int | None) -> None:
+        if bucket_id is None:
+            return
+        bucket = (
+            self.db_session.query(ImageHostFeishuFolderBucket)
+            .filter(ImageHostFeishuFolderBucket.id == bucket_id)
+            .first()
+        )
+        if bucket is None:
+            return
+        bucket.assigned_count = max(bucket.assigned_count - 1, 0)
+        bucket.updated_at = datetime.now(timezone.utc)
+        self.db_session.commit()
+
+    def update_assigned_count(
+        self,
+        bucket: ImageHostFeishuFolderBucket,
+        *,
+        assigned_count: int,
+    ) -> ImageHostFeishuFolderBucket:
+        bucket.assigned_count = assigned_count
+        bucket.updated_at = datetime.now(timezone.utc)
+        self.db_session.commit()
+        self.db_session.refresh(bucket)
+        return bucket

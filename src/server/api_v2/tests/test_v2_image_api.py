@@ -28,12 +28,19 @@ class FakeImageStorageBackend:
         self.folder_tokens: list[str | None] = []
         self.objects: dict[str, bytes] = {}
         self.deleted_keys: list[str] = []
+        self.created_folders: list[tuple[str, str, str]] = []
+        self.folder_node_counts: dict[str, int] = {}
 
     async def put_image(
         self, *, content: bytes, filename: str, mime_type: str
     ) -> str:
         self.upload_count += 1
-        self.folder_tokens.append(_upload_folder_token.get())
+        folder_token = _upload_folder_token.get()
+        self.folder_tokens.append(folder_token)
+        if folder_token is not None:
+            self.folder_node_counts[folder_token] = (
+                self.folder_node_counts.get(folder_token, 0) + 1
+            )
         key = f"fake-file-token-{self.upload_count}"
         self.objects[key] = content
         return key
@@ -44,6 +51,23 @@ class FakeImageStorageBackend:
     async def delete_image(self, file_token: str) -> None:
         self.deleted_keys.append(file_token)
         self.objects.pop(file_token, None)
+
+    async def move_image(self, file_token: str, *, folder_token: str) -> None:
+        self.folder_node_counts[folder_token] = (
+            self.folder_node_counts.get(folder_token, 0) + 1
+        )
+
+    async def create_folder(self, *, parent_folder_token: str, name: str) -> str:
+        token = f"bucket-token-{len(self.created_folders) + 1}"
+        self.created_folders.append((parent_folder_token, name, token))
+        self.folder_node_counts[parent_folder_token] = (
+            self.folder_node_counts.get(parent_folder_token, 0) + 1
+        )
+        self.folder_node_counts[token] = 0
+        return token
+
+    async def count_folder_nodes(self, *, folder_token: str) -> int:
+        return self.folder_node_counts.get(folder_token, 0)
 
 
 @pytest.fixture
@@ -124,7 +148,10 @@ def test_upload_image_v2_uses_requested_folder(
     assert upload_resp.json()["filename"].endswith(".png")
     assert upload_resp.json()["feishu_folder_name"] == "归档"
     assert fake_storage.upload_count == 1
-    assert fake_storage.folder_tokens == ["folder-token-2"]
+    assert fake_storage.created_folders == [
+        ("folder-token-2", "image-host-bucket-0001", "bucket-token-1")
+    ]
+    assert fake_storage.folder_tokens == ["bucket-token-1"]
 
 
 def test_upload_image_v2_rejects_unknown_folder(

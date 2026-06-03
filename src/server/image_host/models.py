@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.server.database import Base
@@ -27,6 +27,10 @@ class ImageAsset(Base):
         ForeignKey("feishu_folders.id", ondelete="SET NULL"),
         nullable=True,
     )
+    feishu_folder_bucket_id: Mapped[int | None] = mapped_column(
+        ForeignKey("image_host_feishu_folder_buckets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     cache_path: Mapped[str] = mapped_column(String(500), nullable=False)
     uploaded_by_user_id: Mapped[int | None] = mapped_column(Integer, default=None)
     last_accessed_at: Mapped[datetime] = mapped_column(
@@ -34,6 +38,42 @@ class ImageAsset(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    feishu_folder = relationship("FeishuFolder")
+    feishu_folder_bucket = relationship("ImageHostFeishuFolderBucket")
+
+
+class ImageHostFeishuFolderBucket(Base):
+    """图床自动分桶子文件夹。"""
+
+    __tablename__ = "image_host_feishu_folder_buckets"
+    __table_args__ = (
+        UniqueConstraint(
+            "feishu_folder_id",
+            "sequence",
+            name="uq_image_host_feishu_folder_buckets_folder_sequence",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    feishu_folder_id: Mapped[int] = mapped_column(
+        ForeignKey("feishu_folders.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    folder_token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    assigned_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from src.server.image_host import service
 from src.server.image_host.config import image_host_config
-from src.server.image_host.models import ImageAsset
+from src.server.image_host.models import ImageAsset, ImageHostFeishuFolderBucket
 from src.server.image_host.storage import _upload_folder_token
 
 PNG_BYTES = (
@@ -35,12 +35,19 @@ class FakeImageStorageBackend:
         self.objects: dict[str, bytes] = {}
         self.deleted_keys: list[str] = []
         self.moved_keys: list[tuple[str, str]] = []
+        self.created_folders: list[tuple[str, str, str]] = []
+        self.folder_node_counts: dict[str, int] = {}
 
     async def put_image(
         self, *, content: bytes, filename: str, mime_type: str
     ) -> str:
         self.upload_count += 1
-        self.folder_tokens.append(_upload_folder_token.get())
+        folder_token = _upload_folder_token.get()
+        self.folder_tokens.append(folder_token)
+        if folder_token is not None:
+            self.folder_node_counts[folder_token] = (
+                self.folder_node_counts.get(folder_token, 0) + 1
+            )
         key = f"fake-file-token-{self.upload_count}"
         self.objects[key] = content
         return key
@@ -54,6 +61,21 @@ class FakeImageStorageBackend:
 
     async def move_image(self, file_token: str, *, folder_token: str) -> None:
         self.moved_keys.append((file_token, folder_token))
+        self.folder_node_counts[folder_token] = (
+            self.folder_node_counts.get(folder_token, 0) + 1
+        )
+
+    async def create_folder(self, *, parent_folder_token: str, name: str) -> str:
+        token = f"bucket-token-{len(self.created_folders) + 1}"
+        self.created_folders.append((parent_folder_token, name, token))
+        self.folder_node_counts[parent_folder_token] = (
+            self.folder_node_counts.get(parent_folder_token, 0) + 1
+        )
+        self.folder_node_counts[token] = 0
+        return token
+
+    async def count_folder_nodes(self, *, folder_token: str) -> int:
+        return self.folder_node_counts.get(folder_token, 0)
 
 
 @pytest.fixture
@@ -201,7 +223,127 @@ def test_upload_image_uses_requested_folder(
     data = upload_resp.json()
     assert data["feishu_folder_id"] == target_folder_resp.json()["id"]
     assert data["feishu_folder_name"] == "归档"
-    assert fake_storage.folder_tokens == ["folder-token-2"]
+    assert fake_storage.created_folders == [
+        ("folder-token-2", "image-host-bucket-0001", "bucket-token-1")
+    ]
+    assert fake_storage.folder_tokens == ["bucket-token-1"]
+
+
+def test_upload_image_reuses_auto_subfolder(
+    test_client,
+    init_test_database,
+    test_db_session: Session,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+    folder_resp = test_client.post(
+        "/api/feishu/folders",
+        headers=headers,
+        json={"name": "图床", "folder_token": "folder-token-1", "is_active": True},
+    )
+    assert folder_resp.status_code == HTTPStatus.CREATED, folder_resp.text
+
+    first_upload = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+    second_upload = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("video.mp4", MP4_BYTES, "video/mp4")},
+    )
+
+    assert first_upload.status_code == HTTPStatus.CREATED, first_upload.text
+    assert second_upload.status_code == HTTPStatus.CREATED, second_upload.text
+    assert fake_storage.created_folders == [
+        ("folder-token-1", "image-host-bucket-0001", "bucket-token-1")
+    ]
+    assert fake_storage.folder_tokens == ["bucket-token-1", "bucket-token-1"]
+    bucket = test_db_session.query(ImageHostFeishuFolderBucket).one()
+    assert bucket.assigned_count == 2
+
+
+def test_upload_image_creates_next_auto_subfolder_when_latest_is_full(
+    test_client,
+    init_test_database,
+    test_db_session: Session,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+    folder_resp = test_client.post(
+        "/api/feishu/folders",
+        headers=headers,
+        json={"name": "图床", "folder_token": "folder-token-1", "is_active": True},
+    )
+    assert folder_resp.status_code == HTTPStatus.CREATED, folder_resp.text
+    test_db_session.add(
+        ImageHostFeishuFolderBucket(
+            feishu_folder_id=folder_resp.json()["id"],
+            name="image-host-bucket-0001",
+            folder_token="bucket-token-old",
+            sequence=1,
+            assigned_count=1500,
+        )
+    )
+    test_db_session.commit()
+    fake_storage.folder_node_counts["bucket-token-old"] = 1500
+    fake_storage.folder_node_counts["folder-token-1"] = 1
+
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+    assert fake_storage.created_folders == [
+        ("folder-token-1", "image-host-bucket-0002", "bucket-token-1")
+    ]
+    assert fake_storage.folder_tokens == ["bucket-token-1"]
+    buckets = (
+        test_db_session.query(ImageHostFeishuFolderBucket)
+        .order_by(ImageHostFeishuFolderBucket.sequence.asc())
+        .all()
+    )
+    assert [bucket.assigned_count for bucket in buckets] == [1500, 1]
+
+
+def test_upload_image_rejects_when_parent_folder_cannot_create_more_buckets(
+    test_client,
+    init_test_database,
+    test_db_session: Session,
+    fake_storage,
+):
+    headers = _login_admin(test_client)
+    folder_resp = test_client.post(
+        "/api/feishu/folders",
+        headers=headers,
+        json={"name": "图床", "folder_token": "folder-token-1", "is_active": True},
+    )
+    assert folder_resp.status_code == HTTPStatus.CREATED, folder_resp.text
+    test_db_session.add(
+        ImageHostFeishuFolderBucket(
+            feishu_folder_id=folder_resp.json()["id"],
+            name="image-host-bucket-0001",
+            folder_token="bucket-token-old",
+            sequence=1,
+            assigned_count=1500,
+        )
+    )
+    test_db_session.commit()
+    fake_storage.folder_node_counts["bucket-token-old"] = 1500
+    fake_storage.folder_node_counts["folder-token-1"] = 1500
+
+    upload_resp = test_client.post(
+        "/api/images",
+        headers=headers,
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+
+    assert upload_resp.status_code == HTTPStatus.CONFLICT, upload_resp.text
+    assert upload_resp.json()["detail"] == "飞书主文件夹节点已满，无法创建新的自动子文件夹"
+    assert fake_storage.upload_count == 0
 
 
 def test_upload_image_rejects_unknown_folder(
@@ -511,9 +653,14 @@ def test_move_image_updates_remote_and_database_folder(
     assert move_resp.status_code == HTTPStatus.OK, move_resp.text
     assert move_resp.json()["feishu_folder_id"] == target_folder["id"]
     assert move_resp.json()["feishu_folder_name"] == "归档"
-    assert fake_storage.moved_keys == [("fake-file-token-1", "folder-token-2")]
+    assert fake_storage.created_folders == [
+        ("folder-token-1", "image-host-bucket-0001", "bucket-token-1"),
+        ("folder-token-2", "image-host-bucket-0001", "bucket-token-2"),
+    ]
+    assert fake_storage.moved_keys == [("fake-file-token-1", "bucket-token-2")]
     asset = test_db_session.query(ImageAsset).filter(ImageAsset.id == asset_id).one()
     assert asset.feishu_folder_id == target_folder["id"]
+    assert asset.feishu_folder_bucket_id is not None
 
 
 def test_move_image_rejects_unknown_folder(
