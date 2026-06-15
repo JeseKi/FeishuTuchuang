@@ -2,7 +2,10 @@ version: '3.8'
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        MIRROR_MODE: ${MIRROR_MODE:-auto}
     ports:
       - "8000:8000"
     env_file:
