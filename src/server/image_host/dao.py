@@ -356,6 +356,25 @@ class ImageHostFeishuFolderBucketDAO(BaseDAO):
         bucket.updated_at = datetime.now(timezone.utc)
         self.db_session.commit()
 
+    def update_assigned_count_by_id(
+        self,
+        bucket_id: int | None,
+        *,
+        assigned_count: int,
+    ) -> None:
+        if bucket_id is None:
+            return
+        bucket = (
+            self.db_session.query(ImageHostFeishuFolderBucket)
+            .filter(ImageHostFeishuFolderBucket.id == bucket_id)
+            .first()
+        )
+        if bucket is None:
+            return
+        bucket.assigned_count = assigned_count
+        bucket.updated_at = datetime.now(timezone.utc)
+        self.db_session.commit()
+
     def update_assigned_count(
         self,
         bucket: ImageHostFeishuFolderBucket,

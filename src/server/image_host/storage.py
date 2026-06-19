@@ -21,6 +21,7 @@ _UPLOAD_TIMEOUT = httpx.Timeout(180.0, connect=15.0)
 _DEFAULT_TIMEOUT = httpx.Timeout(60.0, connect=15.0)
 _UPLOAD_RETRY_COUNT = 3
 _UPLOAD_RETRY_BACKOFF_SECONDS = 1.5
+FEISHU_PARENT_NODE_OUT_OF_SIBLING_NUM_CODE = 1062507
 _upload_folder_token: ContextVar[str | None] = ContextVar(
     "feishu_upload_folder_token",
     default=None,
@@ -53,6 +54,22 @@ class ImageStorageBackend(Protocol):
     async def count_folder_nodes(self, *, folder_token: str) -> int:
         """统计指定文件夹下的节点数量。"""
         ...
+
+
+class FeishuDriveError(HTTPException):
+    """飞书 Drive API 错误。"""
+
+    def __init__(
+        self,
+        *,
+        detail: str,
+        feishu_code: int | None = None,
+    ) -> None:
+        super().__init__(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=detail,
+        )
+        self.feishu_code = feishu_code
 
 
 class FeishuDriveStorageBackend:
@@ -266,11 +283,12 @@ class FeishuDriveStorageBackend:
 
     def _json_or_error(self, response: httpx.Response, fallback_detail: str) -> dict:
         if response.status_code >= 400:
+            feishu_code = _extract_feishu_code(response)
             detail = _build_feishu_error_detail(response, fallback_detail)
             logger.warning(detail)
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
+            raise FeishuDriveError(
                 detail=detail,
+                feishu_code=feishu_code,
             )
 
         try:
@@ -284,9 +302,9 @@ class FeishuDriveStorageBackend:
         if payload.get("code") not in (0, None):
             detail = _format_feishu_payload_error(fallback_detail, payload)
             logger.warning(detail)
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
+            raise FeishuDriveError(
                 detail=detail,
+                feishu_code=_normalize_feishu_code(payload.get("code")),
             )
         return payload
 
@@ -368,6 +386,27 @@ def _build_feishu_error_detail(
     if payload_detail == fallback_detail:
         return base_detail
     return f"{base_detail}，{payload_detail.removeprefix(fallback_detail + '：')}"
+
+
+def _extract_feishu_code(response: httpx.Response) -> int | None:
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return _normalize_feishu_code(payload.get("code"))
+
+
+def _normalize_feishu_code(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 def _format_feishu_payload_error(fallback_detail: str, payload: dict) -> str:

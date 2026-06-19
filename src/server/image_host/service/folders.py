@@ -163,5 +163,18 @@ async def release_upload_folder_bucket(
     )
 
 
+async def mark_upload_folder_bucket_full(
+    db: Session,
+    *,
+    feishu_folder_bucket_id: int | None,
+) -> None:
+    await run_in_thread(
+        lambda: ImageHostFeishuFolderBucketDAO(db).update_assigned_count_by_id(
+            feishu_folder_bucket_id,
+            assigned_count=MAX_FOLDER_NODE_COUNT,
+        )
+    )
+
+
 def _build_bucket_name(sequence: int) -> str:
     return f"{BUCKET_NAME_PREFIX}-{sequence:04d}"

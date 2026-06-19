@@ -9,8 +9,12 @@ import pytest
 
 from src.server.feishu_folder.models import FeishuFolder
 from src.server.image_host.config import image_host_config
-from src.server.image_host.models import ImageAsset
-from src.server.image_host.storage import _upload_folder_token
+from src.server.image_host.models import ImageAsset, ImageHostFeishuFolderBucket
+from src.server.image_host.storage import (
+    FEISHU_PARENT_NODE_OUT_OF_SIBLING_NUM_CODE,
+    FeishuDriveError,
+    _upload_folder_token,
+)
 
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n"
@@ -30,13 +34,23 @@ class FakeImageStorageBackend:
         self.deleted_keys: list[str] = []
         self.created_folders: list[tuple[str, str, str]] = []
         self.folder_node_counts: dict[str, int] = {}
+        self.full_upload_folder_tokens: set[str] = set()
 
     async def put_image(
         self, *, content: bytes, filename: str, mime_type: str
     ) -> str:
-        self.upload_count += 1
         folder_token = _upload_folder_token.get()
         self.folder_tokens.append(folder_token)
+        if folder_token in self.full_upload_folder_tokens:
+            raise FeishuDriveError(
+                detail=(
+                    "飞书 Drive 文件预上传失败：HTTP 400，"
+                    "飞书 code=1062507, msg=parent node out of sibling num."
+                ),
+                feishu_code=FEISHU_PARENT_NODE_OUT_OF_SIBLING_NUM_CODE,
+            )
+
+        self.upload_count += 1
         if folder_token is not None:
             self.folder_node_counts[folder_token] = (
                 self.folder_node_counts.get(folder_token, 0) + 1
@@ -152,6 +166,53 @@ def test_upload_image_v2_uses_requested_folder(
         ("folder-token-2", "image-host-bucket-0001", "bucket-token-1")
     ]
     assert fake_storage.folder_tokens == ["bucket-token-1"]
+
+
+def test_upload_image_v2_creates_next_bucket_when_remote_bucket_is_full(
+    test_client,
+    init_test_database,
+    test_db_session,
+    fake_storage,
+):
+    api_key = _create_api_key(test_client)
+    _create_folder(test_db_session, name="图床", folder_token="folder-token-1")
+    folder = (
+        test_db_session.query(FeishuFolder)
+        .filter(FeishuFolder.name == "图床")
+        .one()
+    )
+    test_db_session.add(
+        ImageHostFeishuFolderBucket(
+            feishu_folder_id=folder.id,
+            name="image-host-bucket-0001",
+            folder_token="bucket-token-old",
+            sequence=1,
+            assigned_count=1,
+        )
+    )
+    test_db_session.commit()
+    fake_storage.full_upload_folder_tokens.add("bucket-token-old")
+    fake_storage.folder_node_counts["bucket-token-old"] = 1500
+    fake_storage.folder_node_counts["folder-token-1"] = 1
+
+    upload_resp = test_client.post(
+        "/api/v2/images",
+        headers={"X-API-Key": api_key},
+        data={"folder_name": "图床"},
+        files={"image": ("pixel.png", PNG_BYTES, "image/png")},
+    )
+
+    assert upload_resp.status_code == HTTPStatus.CREATED, upload_resp.text
+    assert fake_storage.created_folders == [
+        ("folder-token-1", "image-host-bucket-0002", "bucket-token-1")
+    ]
+    assert fake_storage.folder_tokens == ["bucket-token-old", "bucket-token-1"]
+    buckets = (
+        test_db_session.query(ImageHostFeishuFolderBucket)
+        .order_by(ImageHostFeishuFolderBucket.sequence.asc())
+        .all()
+    )
+    assert [bucket.assigned_count for bucket in buckets] == [1500, 1]
 
 
 def test_upload_image_v2_rejects_unknown_folder(

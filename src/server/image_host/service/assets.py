@@ -17,16 +17,25 @@ from src.server.feishu_folder.service import get_folder_by_id
 
 from ..dao import ImageAssetDAO
 from ..models import ImageAsset
-from ..storage import ImageStorageBackend, use_upload_folder_token
+from ..storage import (
+    FEISHU_PARENT_NODE_OUT_OF_SIBLING_NUM_CODE,
+    FeishuDriveError,
+    ImageStorageBackend,
+    use_upload_folder_token,
+)
 from .access import record_image_access
 from .cache import build_cache_path, cache_root, ensure_cache_file, write_cache_file
 from .constants import MIME_TO_EXTENSION
 from .folders import (
+    UploadFolderTarget,
+    mark_upload_folder_bucket_full,
     release_upload_folder_bucket,
     resolve_logical_upload_folder,
     resolve_upload_folder,
 )
 from .validation import detect_mime_type, parse_public_filename, validate_size
+
+_MAX_FULL_BUCKET_RETRIES = 10
 
 
 async def upload_image(
@@ -53,16 +62,10 @@ async def upload_image(
         ensure_cache_file(existing, content)
         record_image_access(existing.id, now)
         if not existing.feishu_file_token:
-            upload_target = await resolve_upload_folder(
+            file_token, upload_target = await _put_image_with_resolved_folder(
                 db,
-                folder_token,
-                feishu_folder_id,
-                _get_storage_backend(),
-            )
-            file_token = await _put_image_with_release(
-                db,
-                folder_token=upload_target.folder_token,
-                feishu_folder_bucket_id=upload_target.feishu_folder_bucket_id,
+                folder_token=folder_token,
+                feishu_folder_id=feishu_folder_id,
                 content=content,
                 filename=f"{existing.id}.{extension}",
                 mime_type=mime_type,
@@ -85,16 +88,10 @@ async def upload_image(
     asset_id = sha256[:32]
     cache_path = build_cache_path(asset_id, extension)
     filename = f"{asset_id}.{extension}"
-    upload_target = await resolve_upload_folder(
+    feishu_file_token, upload_target = await _put_image_with_resolved_folder(
         db,
-        folder_token,
-        feishu_folder_id,
-        _get_storage_backend(),
-    )
-    feishu_file_token = await _put_image_with_release(
-        db,
-        folder_token=upload_target.folder_token,
-        feishu_folder_bucket_id=upload_target.feishu_folder_bucket_id,
+        folder_token=folder_token,
+        feishu_folder_id=feishu_folder_id,
         content=content,
         filename=filename,
         mime_type=mime_type,
@@ -220,28 +217,57 @@ async def move_image_asset(
     )
 
 
-async def _put_image_with_release(
+async def _put_image_with_resolved_folder(
     db: Session,
     *,
     folder_token: str | None,
-    feishu_folder_bucket_id: int | None,
+    feishu_folder_id: int | None,
     content: bytes,
     filename: str,
     mime_type: str,
-) -> str:
-    try:
-        return await _put_image(
-            folder_token=folder_token,
-            content=content,
-            filename=filename,
-            mime_type=mime_type,
-        )
-    except Exception:
-        await release_upload_folder_bucket(
+) -> tuple[str, UploadFolderTarget]:
+    stale_bucket_retries = 0
+
+    while True:
+        upload_target = await resolve_upload_folder(
             db,
-            feishu_folder_bucket_id=feishu_folder_bucket_id,
+            folder_token,
+            feishu_folder_id,
+            _get_storage_backend(),
         )
-        raise
+        try:
+            file_token = await _put_image(
+                folder_token=upload_target.folder_token,
+                content=content,
+                filename=filename,
+                mime_type=mime_type,
+            )
+        except FeishuDriveError as exc:
+            if (
+                exc.feishu_code == FEISHU_PARENT_NODE_OUT_OF_SIBLING_NUM_CODE
+                and upload_target.feishu_folder_bucket_id is not None
+                and stale_bucket_retries < _MAX_FULL_BUCKET_RETRIES
+            ):
+                await mark_upload_folder_bucket_full(
+                    db,
+                    feishu_folder_bucket_id=upload_target.feishu_folder_bucket_id,
+                )
+                stale_bucket_retries += 1
+                continue
+
+            await release_upload_folder_bucket(
+                db,
+                feishu_folder_bucket_id=upload_target.feishu_folder_bucket_id,
+            )
+            raise
+        except Exception:
+            await release_upload_folder_bucket(
+                db,
+                feishu_folder_bucket_id=upload_target.feishu_folder_bucket_id,
+            )
+            raise
+
+        return file_token, upload_target
 
 
 async def _put_image(
