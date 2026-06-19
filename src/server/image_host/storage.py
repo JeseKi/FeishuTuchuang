@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 import httpx
 from fastapi import HTTPException, status
+from loguru import logger
 
 from .config import image_host_config
 from .oauth import get_valid_user_access_token
@@ -265,9 +266,11 @@ class FeishuDriveStorageBackend:
 
     def _json_or_error(self, response: httpx.Response, fallback_detail: str) -> dict:
         if response.status_code >= 400:
+            detail = _build_feishu_error_detail(response, fallback_detail)
+            logger.warning(detail)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"{fallback_detail}：HTTP {response.status_code}",
+                detail=detail,
             )
 
         try:
@@ -279,9 +282,11 @@ class FeishuDriveStorageBackend:
             )
 
         if payload.get("code") not in (0, None):
+            detail = _format_feishu_payload_error(fallback_detail, payload)
+            logger.warning(detail)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"{fallback_detail}：{payload.get('msg') or payload.get('code')}",
+                detail=detail,
             )
         return payload
 
@@ -344,3 +349,42 @@ def use_upload_folder_token(folder_token: str | None) -> Iterator[None]:
 
 def _adler32_checksum(content: bytes) -> int:
     return zlib.adler32(content) & 0xFFFFFFFF
+
+
+def _build_feishu_error_detail(
+    response: httpx.Response,
+    fallback_detail: str,
+) -> str:
+    base_detail = f"{fallback_detail}：HTTP {response.status_code}"
+    try:
+        payload = response.json()
+    except ValueError:
+        response_text = response.text.strip()
+        if not response_text:
+            return base_detail
+        return f"{base_detail}，响应：{_truncate_detail(response_text)}"
+
+    payload_detail = _format_feishu_payload_error(fallback_detail, payload)
+    if payload_detail == fallback_detail:
+        return base_detail
+    return f"{base_detail}，{payload_detail.removeprefix(fallback_detail + '：')}"
+
+
+def _format_feishu_payload_error(fallback_detail: str, payload: dict) -> str:
+    code = payload.get("code")
+    msg = payload.get("msg")
+    if code is None and not msg:
+        return fallback_detail
+
+    parts = []
+    if code is not None:
+        parts.append(f"飞书 code={code}")
+    if msg:
+        parts.append(f"msg={_truncate_detail(str(msg))}")
+    return f"{fallback_detail}：{', '.join(parts)}"
+
+
+def _truncate_detail(value: str, *, max_length: int = 500) -> str:
+    if len(value) <= max_length:
+        return value
+    return value[: max_length - 3] + "..."
